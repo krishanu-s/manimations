@@ -9,7 +9,7 @@ import numpy as np
 import math
 from copy import deepcopy
 from ray import Point, Vector, Hyperplane, Ray
-from trail import RayObject, make_trail
+from trail import RayObject, make_trail, Wavefront
 from polyfunction import Conic
 from symphony import (play_in_parallel, Symphony, Sequence, AnimationEvent, Add, Remove, Bookend)
 
@@ -18,6 +18,7 @@ RAY_OPACITY = 1.0
 RAY_COLOR = m.WHITE
 
 
+# TODO Deprecate this
 def calculate_collisions(conic: Conic, ray: Ray, num_points: int = 10) -> List[Point]:
     """Constructs the sequence of collision points for an initial ray."""
     collision_points = []
@@ -84,160 +85,77 @@ class EllipseScene(m.Scene):
         # ... then play the Successions all in parallel
         self.play(m.AnimationGroup(*successions))
 
-class ParabolaScene(m.Scene):
-    def add_fixed_elements(self):
-        """Build the fixed elements of the scene."""
-        # Construct a parabola y = ax^2
-        a = 0.25
-        self.focus = Point(0, 1 / (4 * a))
-        self.conic = Conic(a, 0, 0, 0, -1.0, 0)
 
-        # Drawing
-        xmax = 6
-        self.ax = m.Axes(
-            x_range=[-xmax, xmax],
-            y_range=[0, a * xmax**2],
-            x_length=6,
-            y_length=6 * ((a * xmax) / 2),
-            tips=False,
-        )
-        parabola = self.ax.plot(lambda x: a * x**2, color=m.BLUE)
-        self.add(parabola, self.make_dot(self.focus, radius=0.08))
-
-    def make_dot(self, point: Point, radius):
-        """Make a dot at the given point."""
-        return m.Dot(
-            self.ax.coords_to_point(*point.coords()), radius=radius, color=m.RED
-        )
-
-    def construct(self):
-        """Construct the scene."""
-        self.add_fixed_elements()
-
-        # Parameters for the set of trajectories to build
-        num_directions = 10
-        w = 1 - 1 / num_directions
-        directions = [
-            Vector(np.sin(theta), -np.cos(theta))
-            for theta in np.linspace(-w * math.pi, w * math.pi, num_directions)
-        ]
-        speed = 4.0
-
-        ### For each direction, create a sequence of animations, which are packaged in series into a Succession:
-        sequences = []
-        for direction in directions:
-            # Make the sequence of collision points, including the starting one
-            points = self.conic.make_trajectory(
-                start=self.focus, direction=direction, total_dist=10.0
-            )
-            # Turn it into animations
-            sequence = self.make_trajectory(points, speed)
-            sequences.append(sequence)
-        # ... then play the Successions all in parallel
-        symphony = Symphony(sequences)
-        symphony.animate(self)
-
-    def make_trajectory(
-        self, points: List[Point], speed: float = 4.0
-    ) -> Sequence:
-        """Animates a sequence of linear motions connecting the sequence of points given."""
-
-        # Make the starting point
-        now_point = points[0]
-        dot = self.make_dot(now_point, radius=0.03)
-        now_coords = self.ax.coords_to_point(*now_point.coords())
-
-        sequence: Sequence = []
-
-        for i, pt in enumerate(points[1:]):
-            next_point = pt.copy()
-            next_coords = self.ax.coords_to_point(*next_point.coords())
-            distance = now_point.distance_to(next_point)
-
-            # Define the trail behind
-            trail = make_trail(dot, starting_point=now_coords, stroke_width=RAY_WIDTH, stroke_opacity=RAY_OPACITY)
-            
-            # Define movement along the line segment
-            segment = m.Line(now_coords, next_coords, stroke_width=RAY_WIDTH, stroke_opacity=RAY_OPACITY)
-            mover_animation = m.MoveAlongPath(
-                dot,
-                segment,
-                run_time=distance/speed,
-                rate_func=lambda t: t
-            )
-
-            # Construct the animation event
-            sequence.append(
-                AnimationEvent(
-                    header=[Add(dot), Add(trail)] if i == 0 else [Add(trail)],
-                    middle=mover_animation,
-                    # Remove the trail and convert to a line segment
-                    footer=[
-                        Remove(trail),
-                        Add(segment)
-                    ])
-            )
-
-            # Update the current point
-            now_point = pt.copy()
-            now_coords = self.ax.coords_to_point(*now_point.coords())
-
-        return sequence
 
 
 class WavefrontScene(m.Scene):
-    # TODO Use m.Homotopy: (x, y, z, t) -> (x', y', z')
-
     def construct(self):
         """Homotope one arc to another"""
-        r_init = 1.0
-        r_final = 4.0
-        a = 0.25
 
-        circle_1 = m.Arc(
-            radius=r_init,
-            arc_center=(0, 1 / (4 * a), 0),
-            start_angle=m.TAU / 4,
-            angle=m.TAU,
-        )
+        a = 1.0
+        w = Wavefront(a=a)
 
-        def htpy(x_0, y_0, z_0, t):
-            # If the point a distance t * r_final from the arc center in the given direction lies
-            # - above the parabola, then go to r_final * t + r_init * (1-t)
-            # - below the parabola, then
-            #   - calculate the intersection x-value
-            #   - go to the point vertically directly above the intersection point at y-coordinate r_final - (1/4a).
+        arc = w.make_arc(1.0)
+        homotopy = w.homotopy(arc, 3.0)
+        # self.add(arc)
+        self.play(homotopy)
+        # square = m.Square()
 
-            # Expand out t of the way to the final circle in the given direction.
-            c = t * (r_final / r_init) + (1 - t)
-            x_1, y_1, z_1 = c * x_0, c * (y_0 - 1 / (4 * a)) + 1 / (4 * a), c * z_0
-            if y_1 < a * x_1**2:
-                # If the result lies above the parabola, then that's our point
-                return x_1, y_1, z_1
-            else:
-                # Otherwise, we first find the x-coordinate of the intersection with the parabola, and then manually set the y-coordinate.
-                x_1 = (
-                    a * y_0
-                    - 0.25
-                    + np.sqrt((a**2) * (x_0**2 + y_0**2) - 0.5 * a * y_0 + 0.0625)
-                ) / (2 * x_0 * a**2)
-                y_1 = t * r_final + (1 - t) * r_init - 0.25
-                return x_1, y_1, z_1
+        # def homotopy(x, y, z, t):
+        #     if t <= 0.25:
+        #         progress = t / 0.25
+        #         return (x, y + progress * 0.2 * np.sin(x), z)
+        #     else:
+        #         wave_progress = (t - 0.25) / 0.75
+        #         return (x, y + 0.2 * np.sin(x + 10 * wave_progress), z)
 
-        # circle_2 = m.Arc(radius = 2.0, start_angle = 0.0, angle = m.TAU / 2, arc_center = (0, 0, 0))
+        # self.play(m.Homotopy(homotopy, square, rate_func= m.linear, run_time=2))
 
-        self.play(
-            m.Homotopy(
-                homotopy=htpy, mobject=circle_1, run_time=1.0, rate_func=m.linear
-            )
-        )
 
-        # ## Construct a wavefront as a circle
-        # # Set the initial wavefront as a circle
-        # focus = [0, 0.25, 0]
-        # initial_wavefront = m.Circle(radius=0.001, arc_center=focus, color=m.BLUE)
+        # circle_1 = m.Arc(
+        #     radius=r_init,
+        #     arc_center=(0, 1 / (4 * a), 0),
+        #     start_angle=m.TAU / 4,
+        #     angle=m.TAU,
+        # )
 
-        # # Set the final wavefront at time z, meaning we expanded for distance z
+        # def htpy(x_0, y_0, z_0, t):
+        #     # If the point a distance t * r_final from the arc center in the given direction lies
+        #     # - above the parabola, then go to r_final * t + r_init * (1-t)
+        #     # - below the parabola, then
+        #     #   - calculate the intersection x-value
+        #     #   - go to the point vertically directly above the intersection point at y-coordinate r_final - (1/4a).
+
+        #     # Expand out t of the way to the final circle in the given direction.
+        #     c = t * (r_final / r_init) + (1 - t)
+        #     x_1, y_1, z_1 = c * x_0, c * (y_0 - 1 / (4 * a)) + 1 / (4 * a), c * z_0
+        #     if y_1 < a * x_1**2:
+        #         # If the result lies above the parabola, then that's our point
+        #         return x_1, y_1, z_1
+        #     else:
+        #         # Otherwise, we first find the x-coordinate of the intersection with the parabola, and then manually set the y-coordinate.
+        #         x_1 = (
+        #             a * y_0
+        #             - 0.25
+        #             + np.sqrt((a**2) * (x_0**2 + y_0**2) - 0.5 * a * y_0 + 0.0625)
+        #         ) / (2 * x_0 * a**2)
+        #         y_1 = t * r_final + (1 - t) * r_init - 0.25
+        #         return x_1, y_1, z_1
+
+        # # circle_2 = m.Arc(radius = 2.0, start_angle = 0.0, angle = m.TAU / 2, arc_center = (0, 0, 0))
+
+        # self.play(
+        #     m.Homotopy(
+        #         homotopy=htpy, mobject=circle_1, run_time=1.0, rate_func=m.linear
+        #     )
+        # )
+
+        # # ## Construct a wavefront as a circle
+        # # # Set the initial wavefront as a circle
+        # # focus = [0, 0.25, 0]
+        # # initial_wavefront = m.Circle(radius=0.001, arc_center=focus, color=m.BLUE)
+
+        # # # Set the final wavefront at time z, meaning we expanded for distance z
         # z = 2.5
         # target_wavefront = make_wavefront(z)
 
@@ -292,3 +210,54 @@ class WavefrontScene(m.Scene):
         # # self.add(make_wavefront(y))
 
         # self.wait(2)
+
+
+def animate_trajectory(
+    points: List[Point], ax: m.Axes, speed: float = 4.0
+) -> Sequence:
+    """Given a sequence of points, creates a Sequence of AnimationEvents for the
+    linear motions connecting them. Creates a trail behind."""
+
+    # Make the starting point
+    now_point = points[0]
+    dot = m.Dot(
+        ax.coords_to_point(*now_point.coords()), radius=0.03, color=m.RED
+    )
+    now_coords = ax.coords_to_point(*now_point.coords())
+
+    sequence: Sequence = []
+
+    for i, pt in enumerate(points[1:]):
+        next_point = pt.copy()
+        next_coords = ax.coords_to_point(*next_point.coords())
+        distance = now_point.distance_to(next_point)
+
+        # Define the trail behind
+        trail = make_trail(dot, starting_point=now_coords, stroke_width=RAY_WIDTH, stroke_opacity=RAY_OPACITY)
+        
+        # Define movement along the line segment
+        segment = m.Line(now_coords, next_coords, stroke_width=RAY_WIDTH, stroke_opacity=RAY_OPACITY)
+        mover_animation = m.MoveAlongPath(
+            dot,
+            segment,
+            run_time=distance/speed,
+            rate_func=lambda t: t
+        )
+
+        # Construct the animation event
+        sequence.append(
+            AnimationEvent(
+                header=[Add(dot), Add(trail)] if i == 0 else [Add(trail)],
+                middle=mover_animation,
+                # Remove the trail and convert to a line segment
+                footer=[
+                    Remove(trail),
+                    Add(segment)
+                ])
+        )
+
+        # Update the current point
+        now_point = pt.copy()
+        now_coords = ax.coords_to_point(*now_point.coords())
+
+    return sequence

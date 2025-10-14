@@ -3,6 +3,12 @@ from __future__ import annotations
 from typing import Tuple
 from dataclasses import dataclass
 import manim as m
+from wavefront import Isotopy
+from copy import deepcopy
+
+"""The minimum runtime allowed for an AnimationEvent. AnimationEvents with runtime
+shorter than this will be deleted."""
+EVENT_TIME_TOLERANCE = 1e-6
 
 @dataclass
 class Add:
@@ -18,6 +24,38 @@ class Remove:
 
 """A Bookend is a list of run-time = 0 events."""
 Bookend = list[Add | Remove]
+
+def split(animation: m.Animation, alpha: float) -> tuple[m.Animation, m.Animation]:
+	"""Splits an animation into two pieces of lengths alpha * runtime and (1-alpha) * runtime."""
+	rt = animation.run_time
+	if isinstance(animation, m.Wait):
+		return m.Wait(alpha * rt), m.Wait((1 - alpha) * rt)
+	elif isinstance(animation, m.MoveAlongPath):
+		mobj = animation.mobject
+		path = animation.path
+		assert isinstance(path, m.Line)
+		assert animation.rate_func == m.linear
+		midpoint = path.point_from_proportion(alpha)
+		return (
+			m.MoveAlongPath(mobj, m.Line(path.start, midpoint), run_time=alpha * rt, rate_func=lambda x: x),
+			m.MoveAlongPath(mobj, m.Line(midpoint, path.end), run_time=(1 - alpha) * rt, rate_func=lambda x: x)
+		)
+	elif isinstance(animation, Isotopy):
+		isotopy = animation.isotopy
+
+		def first_istpy(x, y, z, t, dt):
+			x1, y1, z1, t1 = isotopy(x, y, z, t * alpha, dt * alpha)
+			return x1, y1, z1, t1 / alpha
+		
+		def secnd_istpy(x, y, z, t, dt):
+			x1, y1, z1, t1 = isotopy(x, y, z, alpha + t * (1 - alpha), dt * (1 - alpha))
+			return x1, y1, z1, (t1 - alpha) / (1 - alpha)
+		
+		return (
+			Isotopy(isotopy=first_istpy, run_time = alpha * rt, **animation.kwargs),
+			Isotopy(isotopy=secnd_istpy, run_time = (1 - alpha) * rt, **animation.kwargs)
+		)
+	pass
 
 class AnimationEvent:
 	"""An AnimationEvent is a m.Animation to go into scene.play(), or a m.MObject to go into scene.add() or scene.remove(),
@@ -60,23 +98,26 @@ class AnimationEvent:
 	def split(self, t: float) -> tuple[AnimationEvent, AnimationEvent | None]:
 		"""Fragments the AnimationEvent into an initial portion of run-time t
 		and a final portion with the remainder of the run-time."""
-		if t == self.middle.run_time:
+		if t >= self.middle.run_time - EVENT_TIME_TOLERANCE:
 			return self, None
+		alpha = t / self.middle.run_time
 
 		# TODO Implement this specifically for each Animation type for which it'd be allowed.
-		if isinstance(self.middle, m.MoveAlongPath):
-			# Cut the path into two pieces
-			mobj = self.middle.mobject
-			path = self.middle.path
-			# print("foo", t, self.middle.run_time)
-			midpoint = path.point_from_proportion(self.middle.rate_func(t / self.middle.run_time))
-			first = m.MoveAlongPath(mobj, m.Line(path.start, midpoint), run_time=t, rate_func=lambda x: x)
-			second = m.MoveAlongPath(mobj, m.Line(midpoint, path.end), run_time=self.middle.run_time - t, rate_func=lambda x: x)
+		if isinstance(self.middle, m.Wait):
+			first, second = split(self.middle, alpha)
+		elif isinstance(self.middle, m.MoveAlongPath):
+			first, second = split(self.middle, alpha)
+		elif isinstance(self.middle, Isotopy):
+			first, second = split(self.middle, alpha)
 		else:
 			raise InterruptedError
 
 		return (AnimationEvent(self.header, first, []), AnimationEvent([], second, self.footer))
 
+	@classmethod
+	def wait(cls, t: float) -> AnimationEvent:
+		"""Wraps a `wait' animation."""
+		return AnimationEvent([], m.Wait(t), [])
 
 
 """A Sequence is a list of AnimationEvent's to be played sequentially."""
@@ -102,18 +143,9 @@ class Symphony:
 	sequences: list[Sequence]
 
 	def __init__(self, sequences: list[Sequence]):
-		# TODO Pad the start and end of each sequence with "Wait" until they are all of the same total length.
 		self.sequences = sequences
-		# print("Symphony\n")
-		# for i, s in enumerate(sequences):
-		# 	print(f"Sequence {i} timestamps:")
-		# 	total = 0
-		# 	for r in s:
-		# 		total += r.run_time
-		# 		print(total)
-		# 	print("")
 		self.end_time: float = sum(anim.run_time for anim in sequences[0])
-		# print(self.end_time)
+
 	def animate(self, scene: m.Scene):
 		"""
 		We animate a Symphony as follows.
@@ -149,9 +181,6 @@ class Symphony:
 					times[start_time] = 0
 				start_time += ev.run_time
 		scene_events.sort(key=lambda x: x[0])
-		# print("Scene events:")
-		# for e in scene_events:
-		# 	print(e)
 
 		# Set initial state
 		current_time = 0
@@ -163,25 +192,20 @@ class Symphony:
 			# The time to elapse forward
 			elapsed_time = t - current_time
 
-
-			# print(f"\nAdvancing to time {t}, elapsed time {elapsed_time}:\n")
-
-			# Fragment all of the currently executing events
+			# Split all of the currently executing events
 			to_execute: list[AnimationEvent] = []
 			for ind, event in executing.items():
-				# print("faa", event, elapsed_time)
+				if event is None:
+					continue
+
 				event_fragment, remainder = event.split(elapsed_time)
 				to_execute.append(event_fragment)
 				# If this depleted the executing event in sequences[ind], pop off the next one
 				if remainder is None:
-					next_event = self.sequences[ind].pop(0)
-					# print(f"Index {ind}, new event with time {next_event.run_time}")
+					next_event = self.sequences[ind].pop(0) if len(self.sequences[ind]) > 0 else None
 					executing[ind] = next_event
 				else:
-					# print(f"Index {ind}, remaining time {remainder.run_time}")
 					executing[ind] = remainder
-				# else:
-				# 	print("fee", remainder.middle.run_time)
 
 			# Play the animation fragments in parallel
 			play_in_parallel(to_execute, scene)

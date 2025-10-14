@@ -52,6 +52,8 @@ class Point:
 	def from_array(cls, arr: np.ndarray) -> Point:
 		return Point(arr[0], arr[1], arr[2])
 
+ORIGIN = Point(0, 0, 0)
+
 class Vector:
 	"""A vector in 3D space."""
 	x: float
