@@ -22,6 +22,9 @@ class Isotopy(m.Homotopy):
 class Wavefront:
 	"""A circule wavefront bound by a fixed curve."""
 	# TODO Right now it's hard-coded to be a translate of the parabola y = ax^2.
+	#      Also, angles are fixed to lie within the range [-m.TAU / 4, 3*m.TAU/4]
+	# TODO Expand to allow wavefronts with center at infinity -- i.e, line segments.
+	# TODO Expand to allow wavefronts bounded by other curves, with given angle bounds.
 	def __init__(self, center: np.ndarray, a: float):
 		self.center = center
 		self.a = a

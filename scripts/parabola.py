@@ -138,8 +138,6 @@ class WavefrontScene(m.Scene):
         # Construct wavefront
         center = self.focus.to_array()
         w = Wavefront(center=center, a=a)
-        # for r in [0.1, 0.3, 0.5, 0.7, 0.9]:
-        #     self.add(w.make_arc(r))
 
         # Make a series of cascading wavefronts
         def make_anim(delay):
