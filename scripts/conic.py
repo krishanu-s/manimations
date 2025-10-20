@@ -4,8 +4,10 @@ from __future__ import annotations
 from typing import Literal, Callable, List
 from dataclasses import dataclass
 import numpy as np
+import manim as m
 from ray import Point, Vector, Hyperplane, Ray
 from polyfunction import PolyFunction
+from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
 
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
@@ -16,13 +18,33 @@ class ProjectivePoint:
     x: float
     y: float
     z: float
+    def to_cartesian(self) -> tuple[float, float]:
+        """Converts to Cartesian coordinates."""
+        assert self.z != 0, "Cannot convert the point at infinity to Cartesian coordinates."
+        return self.x / self.z, self.y / self.z
 
-### Types which specify wavefronts
+### animation aid
 
 """An isotopy is a function I: (x, y, z, t, dt) -> (x', y', z', t + dt) for all
 	-t < dt < 1 - t. It restricts to a homotopy H(x, y, z, t) = I(x, y, z, 0, t)."""
 IsotopyFn = Callable[[float, float, float, float, float], tuple[float, float, float]]
 
+class Isotopy(m.Homotopy):
+	def __init__(self, isotopy: IsotopyFn, run_time: float = 3, **kwargs):
+		self.isotopy = isotopy
+		# Keep a copy of initialization kwargs for re-initialization
+		self.kwargs = kwargs
+		def homotopy(x, y, z, t):
+			x1, y1, z1, t1 = isotopy(x, y, z, 0, t)
+			return x1, y1, z1
+		super().__init__(homotopy=homotopy, run_time=run_time, **kwargs)
+
+### Types which specify wavefronts
+
+"""A function which takes a radius r as input, and returns the minimum and maximum
+values of theta on the arc at distance r from the focus and in the same plane region
+as the focus """
+BoundsFn = Callable[[float], tuple[float, float]]
 
 class Arc:
     """An Arc is specified by a center point, radius, starting angle, and ending angle."""
@@ -40,7 +62,17 @@ class ArcEnvelope:
     as output. It defines a region containing the center point as the union of arcs over
     all positive radii."""
     center: tuple[float, float]
-    bounds: Callable[[float], tuple[float, float]]
+    bounds: BoundsFn
+
+    def make_arc(self, radius: float) -> m.Arc:
+        """Produce an Arc at the given radius."""
+        start_angle, stop_angle = self.bounds(radius)
+        return m.Arc(
+            arc_center=tuple(*self.center, 0),
+            radius=radius,
+            start_angle=start_angle,
+            angle = stop_angle - start_angle
+        )
 
     def interpolate_arcs(self, radius_1: float, radius_2: float) -> Callable[[float, float], float]:
         """Given an initial and final radius, defines a function which isotopes a point
@@ -124,6 +156,19 @@ class PolarConicEquation:
         # TODO
         pass
 
+    def bounds(self) -> BoundsFn:
+        """Returns a function which takes radii r as input, and outputs the minimum and
+        maximum values of theta on the arc at distance r from the focus and in the same
+        plane region as the focus."""
+        # TODO
+        def f(radius: float):
+            # Solve the defining equation for theta
+            angle = np.arccos(self.c / radius - 1 / self.e)
+            bound_angles = (self.theta_0 + angle, self.theta_0 - angle)
+            # Now we must do casework to determine where the arc lies
+
+        return f
+
     def to_cartesian(self) -> CartesianConicEquation:
         """Generates the Cartesian form."""
         return CartesianConicEquation(
@@ -145,7 +190,15 @@ class CartesianConicEquation:
     c_y: float
     c_0: float
 
-    def __init__(self, c_xx: float, c_xy: float, c_yy: float, c_x: float, c_y: float, c_0: float):
+    def __init__(
+        self,
+        c_xx: float = 0.0,
+        c_xy: float = 0.0,
+        c_yy: float = 0.0,
+        c_x: float = 0.0,
+        c_y: float = 0.0,
+        c_0: float = 0.0
+    ):
         assert(
             any(coeff != 0 for coeff in (c_xx, c_xy, c_yy, c_x, c_y)),
             "Must have at least one non-zero non-constant coefficient"
@@ -353,3 +406,63 @@ class Conic:
         Used to animate spherical wavefronts centered around the other focus."""
         # TODO
         pass
+
+# Sample code to generate a propagating wavefront scene for an ellipse.
+if __name__ == "__main__":
+    # Ellipse centered at (0, 0) with radii 5 and 3
+    cart_eq = CartesianConicEquation(c_xx=1/25, c_yy=1/16, c_0=1.0)
+    conic = Conic.from_cartesian(cart_eq)
+    main_focus = conic.focus
+    other_focus = conic.other_focus
+
+    assert main_focus.x / main_focus.z == 4.0
+    assert main_focus.y / main_focus.z == 0.0
+    assert other_focus.x / other_focus.z == -4.0
+    assert other_focus.y / other_focus.z == 0.0
+
+    # Polar equations defined around the main focus and other focus.
+    polar_eq_main = conic.polar_eq
+    polar_eq_other = PolarConicEquation(other_focus, polar_eq_main.e, polar_eq_main.c, np.pi + polar_eq_main.theta_0)
+
+    # Make the envelope corresponding to each focus
+    main_envelope = ArcEnvelope(
+        center=main_focus.to_cartesian(),
+        bounds=polar_eq_main.bounds()
+        )
+    other_envelope = ArcEnvelope(
+        center = other_focus.to_cartesian(),
+        bounds=polar_eq_other.bounds()
+    )
+
+    # Make isotopies for animation
+    arc1 = main_envelope.make_arc(0.05)
+    i1 = Isotopy(
+        isotopy=main_envelope.isotopy(0.05, 8.95),
+        mobject=arc1,
+        rate_func=m.linear,
+        run_time=8.9
+        )
+    
+    arc2 = other_envelope.make_arc(8.95)
+    i2 = Isotopy(
+        isotopy=other_envelope.isotopy(8.95, 0.05),
+        mobject=arc2,
+        rate_func=m.linear,
+        run_time=8.9
+        )
+    
+    # Play them simultaneously
+    sequences = []
+    sequences.append([AnimationEvent(
+        header=[Add(arc1)],
+        middle=i1,
+        footer=[Remove(arc1)]
+    )])
+    sequences.append([AnimationEvent(
+        header=[Add(arc2)],
+        middle=i2,
+        footer=[Remove(arc2)]
+    )])
+
+    symphony = Symphony(sequences).animate()
+    
