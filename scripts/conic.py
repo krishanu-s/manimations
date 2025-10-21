@@ -1,13 +1,11 @@
 
 from __future__ import annotations
 from enum import Enum
-from typing import Literal, Callable, List
+from typing import Callable
 from dataclasses import dataclass
 import numpy as np
-import manim as m
 from ray import Point, Vector, Hyperplane, Ray
 from polyfunction import PolyFunction
-from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
 
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
@@ -26,6 +24,8 @@ class Point2D:
         self.y += a
     def __eq__(self, other: Point2D):
         return isclose(self.x, other.x) and isclose(self.y, other.y)
+    def __repr__(self):
+        return f"({self.x:.3f}, {self.y:.3f})"
 
 @dataclass
 class ProjectivePoint:
@@ -33,6 +33,16 @@ class ProjectivePoint:
     x: float
     y: float
     z: float
+    def __repr__(self):
+        return f"({self.x:.3f}: {self.y:.3f}: {self.z:.3f})"
+    def translate_x(self, a: float):
+        if self.z != 0:
+            self.x += a * self.z
+    def translate_y(self, a: float):
+        if self.z != 0:
+            self.y += a * self.z
+    def rotate(self, theta: float):
+        self.x, self.y = np.cos(theta) * self.x - np.sin(theta) * self.y, np.sin(theta) * self.x + np.cos(theta) * self.y
     def to_cartesian(self) -> Point2D:
         """Converts to Cartesian coordinates."""
         assert self.z != 0, "Cannot convert the point at infinity to Cartesian coordinates."
@@ -43,16 +53,6 @@ class ProjectivePoint:
 """An isotopy is a function I: (x, y, z, t, dt) -> (x', y', z', t + dt) for all
 	-t < dt < 1 - t. It restricts to a homotopy H(x, y, z, t) = I(x, y, z, 0, t)."""
 IsotopyFn = Callable[[float, float, float, float, float], tuple[float, float, float]]
-
-class Isotopy(m.Homotopy):
-	def __init__(self, isotopy: IsotopyFn, run_time: float = 3, **kwargs):
-		self.isotopy = isotopy
-		# Keep a copy of initialization kwargs for re-initialization
-		self.kwargs = kwargs
-		def homotopy(x, y, z, t):
-			x1, y1, z1, t1 = isotopy(x, y, z, 0, t)
-			return x1, y1, z1
-		super().__init__(homotopy=homotopy, run_time=run_time, **kwargs)
 
 ### Types which specify wavefronts
 
@@ -78,16 +78,6 @@ class ArcEnvelope:
     all positive radii."""
     center: tuple[float, float]
     bounds: BoundsFn
-
-    def make_arc(self, radius: float) -> m.Arc:
-        """Produce an Arc at the given radius."""
-        start_angle, stop_angle = self.bounds(radius)
-        return m.Arc(
-            arc_center=tuple(*self.center, 0),
-            radius=radius,
-            start_angle=start_angle,
-            angle = stop_angle - start_angle
-        )
 
     def interpolate_arcs(self, radius_1: float, radius_2: float) -> Callable[[float, float], float]:
         """Given an initial and final radius, defines a function which isotopes a point
@@ -149,6 +139,7 @@ class PolarConicEquation:
     e: float
     c: float
     theta_0: float
+    other_focus: ProjectivePoint
 
     def __init__(
         self,
@@ -163,55 +154,87 @@ class PolarConicEquation:
         self.e = e
         self.c = c
         self.theta_0 = theta_0
+        self.other_focus = self._calculate_other_focus()
 
     def __eq__(self, other: PolarConicEquation):
         case_1 = (self.focus == other.focus) and isclose(self.e, other.e) and isclose(self.c, other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), 0)
         case_2 = (self.focus == other.focus) and isclose(self.e, -other.e) and isclose(self.c, -other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), np.pi)
         return case_1 or case_2
+    
+    def __repr__(self):
+        return f"Focus={self.focus}, Eccentricity={self.e}, Scale={self.c}, Angle={self.theta_0}"
 
-    def other_focus(self) -> ProjectivePoint:
-        """Calculates the coordinates of the other focus."""
-        # TODO
-        pass
+    def _calculate_other_focus(self) -> ProjectivePoint:
+        """Calculates the position of the other focus from the given data"""
+        if self.e == 1:
+            return ProjectivePoint(np.cos(self.theta_0), np.sin(self.theta_0), 0)
+        else:
+            # Signed distance between foci
+            dist = self.c * (1/(1 + 1/self.e) - 1/(-1 + 1/self.e))
+            return ProjectivePoint(
+                x=dist * np.cos(self.theta_0),
+                y=dist * np.sin(self.theta_0),
+                z=1
+            )
 
     def bounds(self) -> BoundsFn:
         """Returns a function which takes radii r as input, and outputs the minimum and
         maximum values of theta on the arc at distance r from the focus and in the same
         plane region as the focus."""
         # TODO
-        def f(radius: float):
-            # Solve the defining equation for theta
-            angle = np.arccos(self.c / radius - 1 / self.e)
-            bound_angles = (self.theta_0 + angle, self.theta_0 - angle)
-            # Now we must do casework to determine where the arc lies
+        if self.c > 0:
+            def f(radius: float):
+                # Solve the defining equation for theta
+                angle = np.arccos(self.c / radius - 1 / self.e)
+                # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
+                # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
+                return  (self.theta_0 - angle + np.pi, self.theta_0 + angle + np.pi)
+        else:
+            def f(radius: float):
+                # Solve the defining equation for theta
+                angle = np.arccos(self.c / radius - 1 / self.e)
+                # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
+                # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
+                return  (self.theta_0 - angle, self.theta_0 + angle)
 
         return f
 
     def to_cartesian(self) -> CartesianConicEquation:
         """Generates the Cartesian form."""
-        return CartesianConicEquation(
-            c_xx = (1 / self.e ** 2) - np.cos(self.theta_0) ** 2,
-            c_yy = (1 / self.e ** 2) - np.sin(self.theta_0) ** 2,
-            c_xy = - np.sin(2 * self.theta_0),
-            c_x = 2 * self.c * np.cos(self.theta_0),
-            c_y = 2 * self.c * np.sin(self.theta_0),
-            c = -self.c ** 2
+        cart_eq = CartesianConicEquation(
+            c_xx = (1 / self.e ** 2) - 1,
+            c_yy = (1 / self.e ** 2),
+            c_xy = 0.,
+            c_x = 2 * self.c,
+            c_y = 0,
+            c_0 = -self.c ** 2
         )
+        cart_eq.rotate(self.theta_0)
+        cart_eq.translate_x(self.focus.x)
+        cart_eq.translate_y(self.focus.y)
+        return cart_eq
     
     def translate_x(self, a: float):
         """Substitutes x -> (x - a), translating the graph a units rightward."""
         self.focus.translate_x(a)
+        self.other_focus.translate_x(a)
     
     def translate_y(self, a: float):
         """Substitutes y -> (y - c), translating the graph c units upward."""
         self.focus.translate_y(a)
+        self.other_focus.translate_y(a)
     
     def rotate(self, theta: float):
-        """Rotates the graph counterclockwise by θ by applying the substitution
+        """Rotates the graph counterclockwise around the focus by θ by applying the substitution
         x ->  x * cos(θ) + y * sin(θ)
         y -> -x * sin(θ) + y * cos(θ)
         """
         self.theta_0 -= theta
+        self.other_focus.translate_x(-self.focus.x)
+        self.other_focus.translate_y(-self.focus.y)
+        self.other_focus.rotate(theta)
+        self.other_focus.translate_x(self.focus.x)
+        self.other_focus.translate_y(self.focus.y)
     
     @classmethod
     def std_parabola(cls, m: float) -> PolarConicEquation:
@@ -221,7 +244,7 @@ class PolarConicEquation:
         return PolarConicEquation(
             focus=Point2D(x=0.25 / m, y=0),
             e=1.0,
-            c=-0.5 * m,
+            c=-0.5 / m,  # If c = 2, focal length would be 1
             theta_0=0
             )
     
@@ -268,11 +291,8 @@ class CartesianConicEquation:
         c_y: float = 0.0,
         c_0: float = 0.0
     ):
-        assert(
-            any(coeff != 0 for coeff in (c_xx, c_xy, c_yy, c_x, c_y)),
-            "Must have at least one non-zero non-constant coefficient"
-        )
-        scale = -1.0 if self.c_xx + self.c_yy < 0 else 1.0
+        assert any(coeff != 0 for coeff in (c_xx, c_xy, c_yy, c_x, c_y)), "Must have at least one non-zero non-constant coefficient"
+        scale = -1.0 if c_xx + c_yy < 0 else 1.0
         self.c_xx = c_xx * scale
         self.c_xy = c_xy * scale
         self.c_yy = c_yy * scale
@@ -280,56 +300,83 @@ class CartesianConicEquation:
         self.c_y = c_y * scale
         self.c_0 = c_0 * scale
 
+    def __repr__(self):
+        return f"({self.c_xx:.4f}, {self.c_xy:.4f}, {self.c_yy:.4f}, {self.c_x:.4f}, {self.c_y:.4f}, {self.c_0:.4f})"
+
+    def __eq__(self, other: CartesianConicEquation):
+        if self.c_xx != 0:
+            scale = other.c_xx / self.c_xx
+        elif self.c_xy != 0:
+            scale = other.c_xy / self.c_xy
+        elif self.c_yy != 0:
+            scale = other.c_yy / self.c_yy
+        elif self.c_x != 0:
+            scale = other.c_x / self.c_x
+        elif self.c_y != 0:
+            scale = other.c_y / self.c_y
+        else:
+            return False
+        return all(
+            isclose(scale * getattr(self, name), getattr(other, name))
+            for name in ('c_xx', 'c_xy', 'c_yy', 'c_x', 'c_y', 'c_0')
+        )
+
+
+    def clone(self) -> CartesianConicEquation:
+        return CartesianConicEquation(self.c_xx, self.c_xy, self.c_yy, self.c_x, self.c_y, self.c_0)
+
     def to_polar(self) -> PolarConicEquation:
         """Generates the polar form of the equation."""
+        cart_eq = self.clone()
+        
         # First apply a rotation by θ to eliminate the c_xy term, using
         # tan(2θ) = c_xy / (c_xx - c_yy)
-        if self.c_xx == self.c_yy:
+        if cart_eq.c_xx == cart_eq.c_yy:
             theta = np.pi/4
         else:
-            theta = np.arctan(self.c_xy / (self.c_xx - self.c_yy)) / 2
-        self.rotate(theta)
+            theta = np.arctan(cart_eq.c_xy / (cart_eq.c_xx - cart_eq.c_yy)) / 2
+        cart_eq.rotate(theta)
 
         # At this point, either c_xx is nonzero or c_yy is nonzero.
         # Rotate by π/2 if necessary to ensure |c_yy| >= |c_xx|.
-        if abs(self.c_yy) < abs(self.c_xx):
-            self.rotate(np.pi/2)
+        if abs(cart_eq.c_yy) < abs(cart_eq.c_xx):
+            cart_eq.rotate(np.pi/2)
             theta += np.pi/2
         
         # Translate vertically to eliminate the c_y term
-        a = self.c_y / (2 * self.c_yy)
-        self.translate_y(a)
+        ay = cart_eq.c_y / (2 * cart_eq.c_yy)
+        cart_eq.translate_y(ay)
 
         # Case 1: If c_xx == 0, then the result is a parabola Cy^2 + Dx + F = 0.
-        if self.c_xx == 0:
+        if cart_eq.c_xx == 0:
             # Translate x to eliminate the constant term F, and thus vertex at (0, 0)
-            b = self.c_0 / self.c_x
-            self.translate_x(b)
+            ax = cart_eq.c_0 / cart_eq.c_x
+            cart_eq.translate_x(ax)
             
             # Now the equation is (-C/D)y^2 = x, so retrieve the equation
-            polar_eq = PolarConicEquation.std_parabola(-self.c_yy / self.c_x)
+            polar_eq = PolarConicEquation.std_parabola(-cart_eq.c_yy / cart_eq.c_x)
 
         # Case 2: If c_xx != 0, then the result is an ellipse or hyperbola
         else:
             # Translate x to eliminate the c_x term and thus center at (0, 0).
-            b = self.c_x / (2 * self.c_x)
-            self.translate_x(b)
+            ax = cart_eq.c_x / (2 * cart_eq.c_x)
+            cart_eq.translate_x(ax)
 
             # Now the equation is Ax^2 + Cy^2 + F = 0, so retrieve the equation
-            if self.c_xx * self.c_yy > 0:
+            if cart_eq.c_xx * cart_eq.c_yy > 0:
                 polar_eq = PolarConicEquation.std_ellipse(
-                    a=np.sqrt(-self.c_0 / self.c_xx),
-                    b=np.sqrt(-self.c_0 / self.c_yy)
+                    a=np.sqrt(-cart_eq.c_0 / cart_eq.c_xx),
+                    b=np.sqrt(-cart_eq.c_0 / cart_eq.c_yy)
                     )
-            elif self.c_xx * self.c_yy < 0:
+            elif cart_eq.c_xx * cart_eq.c_yy < 0:
                 polar_eq = PolarConicEquation.std_hyperbola(
-                    a=np.sqrt(-self.c_0 / self.c_xx),
-                    b=-np.sqrt(-self.c_0 / self.c_yy)
+                    a=np.sqrt(-cart_eq.c_0 / cart_eq.c_xx),
+                    b=-np.sqrt(-cart_eq.c_0 / cart_eq.c_yy)
                     )
         
         # Perform the reverse operations on the polar equation
-        polar_eq.translate_x(-a)
-        polar_eq.translate_y(-b)
+        polar_eq.translate_x(-ax)
+        polar_eq.translate_y(-ay)
         polar_eq.rotate(-theta)
         return polar_eq
     
@@ -369,7 +416,24 @@ class CartesianConicEquation:
         c_y = self.c_x * s + self.c_y * c
         self.c_x = c_x
         self.c_y = c_y
-        
+    
+    @classmethod
+    def std_parabola(cls, m: float) -> CartesianConicEquation:
+        """Produces the polar form of the parabola my^2 = x, which has
+        focus at (1/4m, 0) and vertex at (0, 0)."""
+        assert m != 0
+        return CartesianConicEquation(0., 0., m, -1., 0., 0.)
+    
+    @classmethod
+    def std_ellipse(cls, a: float, b: float) -> CartesianConicEquation:
+        """Produces the polar form of the ellipse (x/a)^2 + (y/b)^2 = 1, where a >= b."""
+        assert abs(a) >= abs(b), "Major axis must lie along the x-axis."
+        return CartesianConicEquation(1/(a**2), 0., 1/(b**2), 0., 0., -1.)
+    
+    @classmethod
+    def std_hyperbola(cls, a: float, b: float) -> CartesianConicEquation:
+        """Produces the polar form of the hyperbola (x/a)^2 - (y/b)^2 = 1."""
+        return CartesianConicEquation(1/(a**2), 0., -1/(b**2), 0., 0., -1.)
     
     ### For animating trajectories
 
@@ -558,67 +622,112 @@ class Conic:
 
 # Sample code to generate a propagating wavefront scene for an ellipse.
 if __name__ == "__main__":
-    # Ellipse centered at (0, 0) with radii 5 and 3
-    cart_eq = CartesianConicEquation(c_xx=1/25, c_yy=1/16, c_0=1.0)
-    conic = Conic.from_cartesian(cart_eq)
-    main_focus = conic.focus
-    other_focus = conic.other_focus
-
-    assert main_focus.x == 4.0
-    assert main_focus.y == 0.0
-    assert other_focus.x / other_focus.z == -4.0
-    assert other_focus.y / other_focus.z == 0.0
-
-    # Polar equations defined around the main focus and other focus.
-    polar_eq_main = conic.polar_eq
-    polar_eq_other = PolarConicEquation(other_focus, polar_eq_main.e, polar_eq_main.c, np.pi + polar_eq_main.theta_0)
-
-    # Make the envelope corresponding to each focus
-    main_envelope = ArcEnvelope(
-        center=main_focus,
-        bounds=polar_eq_main.bounds()
-        )
-    other_envelope = ArcEnvelope(
-        center = other_focus.to_cartesian(),
-        bounds=polar_eq_other.bounds()
-    )
-
-    # Make isotopies for animation
-    # TODO Make several here.
-    arc1 = main_envelope.make_arc(0.05)
-    i1 = Isotopy(
-        isotopy=main_envelope.isotopy(0.05, 8.95),
-        mobject=arc1,
-        rate_func=m.linear,
-        run_time=8.9
-        )
-    
-    arc2 = other_envelope.make_arc(8.95)
-    i2 = Isotopy(
-        isotopy=other_envelope.isotopy(8.95, 0.05),
-        mobject=arc2,
-        rate_func=m.linear,
-        run_time=8.9
-        )
-    
-    # Play them simultaneously
-    sequences = []
-    sequences.append([AnimationEvent(
-        header=[Add(arc1)],
-        middle=i1,
-        footer=[Remove(arc1)]
-    )])
-    sequences.append([AnimationEvent(
-        header=[Add(arc2)],
-        middle=i2,
-        footer=[Remove(arc2)]
-    )])
-
-    symphony = Symphony(sequences).animate()
-    
-# TODO Test all functions in the polar and Cartesian form.
-def test_1():
-    polar_eq = PolarConicEquation(Point2D(0, 0), 1, 1, 0)
+    # Parabola with focus at (0, 0) and focal length 1
+    polar_eq = PolarConicEquation(Point2D(0, 0), 1, 2, 0)
     cart_eq = polar_eq.to_cartesian()
+    assert cart_eq == CartesianConicEquation(0., 0., 1., 4., 0., -4.)
     new_polar_eq = cart_eq.to_polar()
     assert polar_eq == new_polar_eq
+
+    # Standard ellipse
+    polar_eq = PolarConicEquation.std_ellipse(5.0, 3.0)
+    cart_eq = CartesianConicEquation.std_ellipse(5.0, 3.0)
+    assert cart_eq == polar_eq.to_cartesian()
+
+    # Standard hyperbola
+    polar_eq = PolarConicEquation.std_hyperbola(5.0, 3.0)
+    cart_eq = CartesianConicEquation.std_hyperbola(5.0, 3.0)
+    assert cart_eq == polar_eq.to_cartesian()
+
+
+
+    # class Isotopy(m.Homotopy):
+    #     def __init__(self, isotopy: IsotopyFn, run_time: float = 3, **kwargs):
+    #         self.isotopy = isotopy
+    #         # Keep a copy of initialization kwargs for re-initialization
+    #         self.kwargs = kwargs
+    #         def homotopy(x, y, z, t):
+    #             x1, y1, z1, t1 = isotopy(x, y, z, 0, t)
+    #             return x1, y1, z1
+    #         super().__init__(homotopy=homotopy, run_time=run_time, **kwargs)
+
+    # import manim as m
+    # from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
+    # # Ellipse centered at (0, 0) with radii 5 and 3
+    # cart_eq = CartesianConicEquation(c_xx=1/25, c_yy=1/16, c_0=1.0)
+    # conic = Conic.from_cartesian(cart_eq)
+    # main_focus = conic.focus
+    # other_focus = conic.other_focus
+
+    # assert main_focus.x == 4.0
+    # assert main_focus.y == 0.0
+    # assert other_focus.x / other_focus.z == -4.0
+    # assert other_focus.y / other_focus.z == 0.0
+
+    # # Polar equations defined around the main focus and other focus.
+    # polar_eq_main = conic.polar_eq
+    # polar_eq_other = PolarConicEquation(other_focus, polar_eq_main.e, polar_eq_main.c, np.pi + polar_eq_main.theta_0)
+
+    # # Make the envelope corresponding to each focus
+    # main_envelope = ArcEnvelope(
+    #     center=main_focus,
+    #     bounds=polar_eq_main.bounds()
+    #     )
+    # other_envelope = ArcEnvelope(
+    #     center = other_focus.to_cartesian(),
+    #     bounds=polar_eq_other.bounds()
+    # )
+
+    # # Make isotopies for animation
+    # # TODO Make several here.
+    # r1 = 0.05
+    # start_angle, stop_angle = main_envelope.bounds(r1)
+    # arc1 = m.Arc(
+    #     arc_center=tuple(*main_envelope.center, 0),
+    #     radius=r1,
+    #     start_angle=start_angle,
+    #     angle=stop_angle - start_angle
+    #     )
+    # i1 = Isotopy(
+    #     isotopy=main_envelope.isotopy(0.05, 8.95),
+    #     mobject=arc1,
+    #     rate_func=m.linear,
+    #     run_time=8.9
+    #     )
+    
+    # r2 = 8.95
+    # start_angle, stop_angle = other_envelope.bounds(r2)
+    # arc2 = m.Arc(
+    #     arc_center=tuple(*other_envelope.center, 0),
+    #     radius=r2,
+    #     start_angle=start_angle,
+    #     angle=stop_angle - start_angle
+    #     )
+    # i2 = Isotopy(
+    #     isotopy=other_envelope.isotopy(8.95, 0.05),
+    #     mobject=arc2,
+    #     rate_func=m.linear,
+    #     run_time=8.9
+    #     )
+    
+    # # Play them simultaneously
+    # sequences = []
+    # sequences.append([AnimationEvent(
+    #     header=[Add(arc1)],
+    #     middle=i1,
+    #     footer=[Remove(arc1)]
+    # )])
+    # sequences.append([AnimationEvent(
+    #     header=[Add(arc2)],
+    #     middle=i2,
+    #     footer=[Remove(arc2)]
+    # )])
+
+    # symphony = Symphony(sequences).animate()
+    
+# TODO Test all functions in the polar and Cartesian form.
+# def test_1():
+#     polar_eq = PolarConicEquation(Point2D(0, 0), 1, 1, 0)
+#     cart_eq = polar_eq.to_cartesian()
+#     new_polar_eq = cart_eq.to_polar()
+#     assert polar_eq == new_polar_eq
