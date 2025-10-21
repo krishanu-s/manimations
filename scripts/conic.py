@@ -1,6 +1,6 @@
 
-from enum import Enum
 from __future__ import annotations
+from enum import Enum
 from typing import Literal, Callable, List
 from dataclasses import dataclass
 import numpy as np
@@ -11,6 +11,21 @@ from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
 
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
+def isclose(a: float, b: float):
+    """Tolerances for computation"""
+    return abs(a - b) < 1e-5
+
+@dataclass
+class Point2D:
+    """A 2-tuple representing a point in R^2."""
+    x: float
+    y: float
+    def translate_x(self, a: float):
+        self.x += a
+    def translate_y(self, a: float):
+        self.y += a
+    def __eq__(self, other: Point2D):
+        return isclose(self.x, other.x) and isclose(self.y, other.y)
 
 @dataclass
 class ProjectivePoint:
@@ -18,10 +33,10 @@ class ProjectivePoint:
     x: float
     y: float
     z: float
-    def to_cartesian(self) -> tuple[float, float]:
+    def to_cartesian(self) -> Point2D:
         """Converts to Cartesian coordinates."""
         assert self.z != 0, "Cannot convert the point at infinity to Cartesian coordinates."
-        return self.x / self.z, self.y / self.z
+        return Point2D(self.x / self.z, self.y / self.z)
 
 ### animation aid
 
@@ -130,26 +145,29 @@ class PolarConicEquation:
     """An equation for r in terms of θ of the form r = C / (1/E + cos(θ - θ_0)).
     Invariant under sending E -> -E, C -> -C, and θ_0 -> θ_0 + π, so we assume
     that E > 0."""
-    focus: ProjectivePoint
+    focus: Point2D
     e: float
     c: float
     theta_0: float
 
     def __init__(
         self,
-        focus: ProjectivePoint,
+        focus: Point2D,
         e: float,
         c: float,
         theta_0: float
     ):
-        assert(
-            e > 0,
-            "Eccentricity must be positive."
-        )
+        assert e > 0, "Eccentricity must be positive."
+        
         self.focus = focus
         self.e = e
         self.c = c
         self.theta_0 = theta_0
+
+    def __eq__(self, other: PolarConicEquation):
+        case_1 = (self.focus == other.focus) and isclose(self.e, other.e) and isclose(self.c, other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), 0)
+        case_2 = (self.focus == other.focus) and isclose(self.e, -other.e) and isclose(self.c, -other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), np.pi)
+        return case_1 or case_2
 
     def other_focus(self) -> ProjectivePoint:
         """Calculates the coordinates of the other focus."""
@@ -179,9 +197,60 @@ class PolarConicEquation:
             c_y = 2 * self.c * np.sin(self.theta_0),
             c = -self.c ** 2
         )
+    
+    def translate_x(self, a: float):
+        """Substitutes x -> (x - a), translating the graph a units rightward."""
+        self.focus.translate_x(a)
+    
+    def translate_y(self, a: float):
+        """Substitutes y -> (y - c), translating the graph c units upward."""
+        self.focus.translate_y(a)
+    
+    def rotate(self, theta: float):
+        """Rotates the graph counterclockwise by θ by applying the substitution
+        x ->  x * cos(θ) + y * sin(θ)
+        y -> -x * sin(θ) + y * cos(θ)
+        """
+        self.theta_0 -= theta
+    
+    @classmethod
+    def std_parabola(cls, m: float) -> PolarConicEquation:
+        """Produces the polar form of the parabola my^2 = x, which has
+        focus at (1/4m, 0) and vertex at (0, 0)."""
+        assert m != 0
+        return PolarConicEquation(
+            focus=Point2D(x=0.25 / m, y=0),
+            e=1.0,
+            c=-0.5 * m,
+            theta_0=0
+            )
+    
+    @classmethod
+    def std_ellipse(cls, a: float, b: float) -> PolarConicEquation:
+        """Produces the polar form of the ellipse (x/a)^2 + (y/b)^2 = 1, where a >= b."""
+        assert abs(a) >= abs(b), "Major axis must lie along the x-axis."
+        length = np.sqrt(a**2 - b**2)
+        return PolarConicEquation(
+            focus=Point2D(x=length, y=0),
+            e=length/a,
+            c=(b**2)/length,
+            theta_0=0
+            )
+    
+    @classmethod
+    def std_hyperbola(cls, a: float, b: float) -> PolarConicEquation:
+        """Produces the polar form of the hyperbola (x/a)^2 - (y/b)^2 = 1."""
+        length = np.sqrt(a**2 + b**2)
+        return PolarConicEquation(
+            focus=Point2D(x=-length, y=0),
+            e=length/a,
+            c=(b**2)/length,
+            theta_0=0
+            )
 
 class CartesianConicEquation:
-    """An equation relating x and y in the form Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0.
+    """An equation relating x and y in the form Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0,
+    where at least one of A, B, C, D, E is nonzero.
     Invariant under scaling all parameters, so we assume that self.c_xx + self.c_yy >= 0."""
     c_xx: float
     c_xy: float
@@ -212,12 +281,96 @@ class CartesianConicEquation:
         self.c_0 = c_0 * scale
 
     def to_polar(self) -> PolarConicEquation:
-        """Generates the polar form."""
-        # TODO
-        # First, translate so that one of the foci is at (0, 0), i.e. so that 
-        # c_x * c_y = 2 * c * c_xy.
-        pass
+        """Generates the polar form of the equation."""
+        # First apply a rotation by θ to eliminate the c_xy term, using
+        # tan(2θ) = c_xy / (c_xx - c_yy)
+        if self.c_xx == self.c_yy:
+            theta = np.pi/4
+        else:
+            theta = np.arctan(self.c_xy / (self.c_xx - self.c_yy)) / 2
+        self.rotate(theta)
 
+        # At this point, either c_xx is nonzero or c_yy is nonzero.
+        # Rotate by π/2 if necessary to ensure |c_yy| >= |c_xx|.
+        if abs(self.c_yy) < abs(self.c_xx):
+            self.rotate(np.pi/2)
+            theta += np.pi/2
+        
+        # Translate vertically to eliminate the c_y term
+        a = self.c_y / (2 * self.c_yy)
+        self.translate_y(a)
+
+        # Case 1: If c_xx == 0, then the result is a parabola Cy^2 + Dx + F = 0.
+        if self.c_xx == 0:
+            # Translate x to eliminate the constant term F, and thus vertex at (0, 0)
+            b = self.c_0 / self.c_x
+            self.translate_x(b)
+            
+            # Now the equation is (-C/D)y^2 = x, so retrieve the equation
+            polar_eq = PolarConicEquation.std_parabola(-self.c_yy / self.c_x)
+
+        # Case 2: If c_xx != 0, then the result is an ellipse or hyperbola
+        else:
+            # Translate x to eliminate the c_x term and thus center at (0, 0).
+            b = self.c_x / (2 * self.c_x)
+            self.translate_x(b)
+
+            # Now the equation is Ax^2 + Cy^2 + F = 0, so retrieve the equation
+            if self.c_xx * self.c_yy > 0:
+                polar_eq = PolarConicEquation.std_ellipse(
+                    a=np.sqrt(-self.c_0 / self.c_xx),
+                    b=np.sqrt(-self.c_0 / self.c_yy)
+                    )
+            elif self.c_xx * self.c_yy < 0:
+                polar_eq = PolarConicEquation.std_hyperbola(
+                    a=np.sqrt(-self.c_0 / self.c_xx),
+                    b=-np.sqrt(-self.c_0 / self.c_yy)
+                    )
+        
+        # Perform the reverse operations on the polar equation
+        polar_eq.translate_x(-a)
+        polar_eq.translate_y(-b)
+        polar_eq.rotate(-theta)
+        return polar_eq
+    
+    def translate_x(self, a: float):
+        """Substitutes x -> (x - a), translating the graph a units rightward."""
+        c_0 = self.c_0 - a * self.c_x + (a**2) * self.c_xx
+        c_x = self.c_x - 2 * a * self.c_xx
+        c_y = self.c_y - a * self.c_xy
+        self.c_0 = c_0
+        self.c_x = c_x
+        self.c_y = c_y
+    
+    def translate_y(self, a: float):
+        """Substitutes y -> (y - c), translating the graph c units upward."""
+        c_0 = self.c_0 - a * self.c_y + (a**2) * self.c_yy
+        c_y = self.c_y - 2 * a * self.c_yy
+        c_x = self.c_x - a * self.c_xy
+        self.c_0 = c_0
+        self.c_y = c_y
+        self.c_x = c_x
+    
+    def rotate(self, theta: float):
+        """Rotates the graph counterclockwise by θ by applying the substitution
+        x ->  x * cos(θ) + y * sin(θ)
+        y -> -x * sin(θ) + y * cos(θ)
+        """
+        c, s = np.cos(theta), np.sin(theta)
+
+        c_xx = self.c_xx * (c**2) + self.c_yy * (s**2) - self.c_xy * c * s
+        c_yy = self.c_yy * (c**2) + self.c_xx * (s**2) + self.c_xy * c * s
+        c_xy = (self.c_xx - self.c_yy) * np.sin(2 * theta) + self.c_xy * np.cos(2 * theta)
+        self.c_xx = c_xx
+        self.c_yy = c_yy
+        self.c_xy = c_xy
+
+        c_x = self.c_x * c - self.c_y * s
+        c_y = self.c_x * s + self.c_y * c
+        self.c_x = c_x
+        self.c_y = c_y
+        
+    
     ### For animating trajectories
 
     def restrict(self, ray: Ray) -> PolyFunction:
@@ -351,10 +504,6 @@ class Conic:
         # Define the eccentricity
         self.eccentricity = polar_eq.e
         assert self.eccentricity > 0
-
-        # Calculate the focal length
-        # TODO
-        self.focal_length = 0
     
     def _type(self) -> ConicType:
         """Returns the type of conic."""
@@ -415,8 +564,8 @@ if __name__ == "__main__":
     main_focus = conic.focus
     other_focus = conic.other_focus
 
-    assert main_focus.x / main_focus.z == 4.0
-    assert main_focus.y / main_focus.z == 0.0
+    assert main_focus.x == 4.0
+    assert main_focus.y == 0.0
     assert other_focus.x / other_focus.z == -4.0
     assert other_focus.y / other_focus.z == 0.0
 
@@ -426,7 +575,7 @@ if __name__ == "__main__":
 
     # Make the envelope corresponding to each focus
     main_envelope = ArcEnvelope(
-        center=main_focus.to_cartesian(),
+        center=main_focus,
         bounds=polar_eq_main.bounds()
         )
     other_envelope = ArcEnvelope(
@@ -435,6 +584,7 @@ if __name__ == "__main__":
     )
 
     # Make isotopies for animation
+    # TODO Make several here.
     arc1 = main_envelope.make_arc(0.05)
     i1 = Isotopy(
         isotopy=main_envelope.isotopy(0.05, 8.95),
@@ -466,3 +616,9 @@ if __name__ == "__main__":
 
     symphony = Symphony(sequences).animate()
     
+# TODO Test all functions in the polar and Cartesian form.
+def test_1():
+    polar_eq = PolarConicEquation(Point2D(0, 0), 1, 1, 0)
+    cart_eq = polar_eq.to_cartesian()
+    new_polar_eq = cart_eq.to_polar()
+    assert polar_eq == new_polar_eq
