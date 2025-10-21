@@ -9,9 +9,11 @@ from polyfunction import PolyFunction
 
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
+COEFF_TOLERANCE = 1e-5
+
 def isclose(a: float, b: float):
     """Tolerances for computation"""
-    return abs(a - b) < 1e-5
+    return abs(a - b) < COEFF_TOLERANCE
 
 @dataclass
 class Point2D:
@@ -26,6 +28,8 @@ class Point2D:
         return isclose(self.x, other.x) and isclose(self.y, other.y)
     def __repr__(self):
         return f"({self.x:.3f}, {self.y:.3f})"
+    def to_projective(self) -> ProjectivePoint:
+        return ProjectivePoint(self.x, self.y, 1)
 
 @dataclass
 class ProjectivePoint:
@@ -35,6 +39,17 @@ class ProjectivePoint:
     z: float
     def __repr__(self):
         return f"({self.x:.3f}: {self.y:.3f}: {self.z:.3f})"
+    def __eq__(self, other: ProjectivePoint):
+        if self.x != 0:
+            scale = other.x / self.x
+        elif self.y != 0:
+            scale = other.y / self.y
+        elif self.z != 0:
+            scale = other.z / self.z
+        return all(
+            isclose(scale * getattr(self, name), getattr(other, name))
+            for name in ('x', 'y', 'z')
+            )
     def translate_x(self, a: float):
         if self.z != 0:
             self.x += a * self.z
@@ -132,9 +147,10 @@ class SegmentEnvelope:
 ### Types for specifying a conic section
 
 class PolarConicEquation:
-    """An equation for r in terms of θ of the form r = C / (1/E + cos(θ - θ_0)).
-    Invariant under sending E -> -E, C -> -C, and θ_0 -> θ_0 + π, so we assume
-    that E > 0."""
+    """An equation for r in terms of θ of the form r = C / (1 + E * cos(θ - θ_0)).
+    Invariant under sending E -> -E, and θ_0 -> θ_0 + π, and also
+    invariant under sending C -> -C and θ_0 -> θ_0 + π.
+    So we assume E >= 0 and C > 0."""
     focus: Point2D
     e: float
     c: float
@@ -148,7 +164,9 @@ class PolarConicEquation:
         c: float,
         theta_0: float
     ):
-        assert e > 0, "Eccentricity must be positive."
+        assert e >= 0, "Eccentricity must be nonnegative."
+        assert c > 0, "Scale must be positive"
+        assert theta_0 >= 0 and theta_0 < (2 * np.pi), "Angle must be in [0, 2 * π)"
         
         self.focus = focus
         self.e = e
@@ -157,23 +175,23 @@ class PolarConicEquation:
         self.other_focus = self._calculate_other_focus()
 
     def __eq__(self, other: PolarConicEquation):
-        case_1 = (self.focus == other.focus) and isclose(self.e, other.e) and isclose(self.c, other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), 0)
-        case_2 = (self.focus == other.focus) and isclose(self.e, -other.e) and isclose(self.c, -other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), np.pi)
-        return case_1 or case_2
+        return (self.focus == other.focus) and isclose(self.e, other.e) and isclose(self.c, other.c) and isclose(self.theta_0 - other.theta_0 % (2 * np.pi), 0)
     
     def __repr__(self):
         return f"Focus={self.focus}, Eccentricity={self.e}, Scale={self.c}, Angle={self.theta_0}"
 
     def _calculate_other_focus(self) -> ProjectivePoint:
-        """Calculates the position of the other focus from the given data"""
+        """Calculates the position of the other focus from the given data, in absolute coordinates"""
         if self.e == 1:
             return ProjectivePoint(np.cos(self.theta_0), np.sin(self.theta_0), 0)
+        elif self.e == 0:
+            return self.focus.to_projective()
         else:
             # Signed distance between foci
-            dist = self.c * (1/(1 + 1/self.e) - 1/(-1 + 1/self.e))
+            dist = self.c * (1/(self.e + 1) + 1/(self.e - 1))
             return ProjectivePoint(
-                x=dist * np.cos(self.theta_0),
-                y=dist * np.sin(self.theta_0),
+                x=self.focus.x + dist * np.cos(self.theta_0),
+                y=self.focus.y + dist * np.sin(self.theta_0),
                 z=1
             )
 
@@ -181,18 +199,17 @@ class PolarConicEquation:
         """Returns a function which takes radii r as input, and outputs the minimum and
         maximum values of theta on the arc at distance r from the focus and in the same
         plane region as the focus."""
-        # TODO
-        if self.c > 0:
+        if self.c / self.e > 0:
             def f(radius: float):
                 # Solve the defining equation for theta
-                angle = np.arccos(self.c / radius - 1 / self.e)
+                angle = np.arccos(self.c / self.e * radius - 1 / self.e)
                 # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
                 # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
                 return  (self.theta_0 - angle + np.pi, self.theta_0 + angle + np.pi)
         else:
             def f(radius: float):
                 # Solve the defining equation for theta
-                angle = np.arccos(self.c / radius - 1 / self.e)
+                angle = np.arccos(self.c / self.e * radius - 1 / self.e)
                 # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
                 # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
                 return  (self.theta_0 - angle, self.theta_0 + angle)
@@ -201,15 +218,25 @@ class PolarConicEquation:
 
     def to_cartesian(self) -> CartesianConicEquation:
         """Generates the Cartesian form."""
-        cart_eq = CartesianConicEquation(
-            c_xx = (1 / self.e ** 2) - 1,
-            c_yy = (1 / self.e ** 2),
-            c_xy = 0.,
-            c_x = 2 * self.c,
-            c_y = 0,
-            c_0 = -self.c ** 2
-        )
-        cart_eq.rotate(self.theta_0)
+        if self.e == 0:
+            cart_eq = CartesianConicEquation(
+                c_xx = 1 / (self.c**2),
+                c_xy = 0.,
+                c_yy = 1 / (self.c**2),
+                c_x=0.,
+                c_y=0.,
+                c_0=-1.
+            )
+        else:
+            cart_eq = CartesianConicEquation(
+                c_xx = (1 / self.e ** 2) - 1,
+                c_xy = 0.,
+                c_yy = (1 / self.e ** 2),
+                c_x = 2 * self.c / self.e,
+                c_y = 0,
+                c_0 = -(self.c/self.e) ** 2
+            )
+            cart_eq.rotate(self.theta_0)
         cart_eq.translate_x(self.focus.x)
         cart_eq.translate_y(self.focus.y)
         return cart_eq
@@ -252,11 +279,18 @@ class PolarConicEquation:
     def std_ellipse(cls, a: float, b: float) -> PolarConicEquation:
         """Produces the polar form of the ellipse (x/a)^2 + (y/b)^2 = 1, where a >= b."""
         assert abs(a) >= abs(b), "Major axis must lie along the x-axis."
+        if a == b:
+            return PolarConicEquation(
+                focus=Point2D(x=0, y=0),
+                e=0,
+                c=a**2,
+                theta_0=0
+            )
         length = np.sqrt(a**2 - b**2)
         return PolarConicEquation(
             focus=Point2D(x=length, y=0),
             e=length/a,
-            c=(b**2)/length,
+            c=(b**2)/a,
             theta_0=0
             )
     
@@ -267,7 +301,7 @@ class PolarConicEquation:
         return PolarConicEquation(
             focus=Point2D(x=-length, y=0),
             e=length/a,
-            c=(b**2)/length,
+            c=(b**2)/a,
             theta_0=0
             )
 
@@ -629,13 +663,21 @@ if __name__ == "__main__":
     new_polar_eq = cart_eq.to_polar()
     assert polar_eq == new_polar_eq
 
+    # Circle
+    polar_eq = PolarConicEquation.std_ellipse(1.0, 1.0)
+    assert polar_eq.other_focus == ProjectivePoint(0, 0, 1)
+    cart_eq = CartesianConicEquation.std_ellipse(1.0, 1.0)
+    assert cart_eq == polar_eq.to_cartesian()
+
     # Standard ellipse
     polar_eq = PolarConicEquation.std_ellipse(5.0, 3.0)
+    assert polar_eq.other_focus == ProjectivePoint(-4, 0, 1)
     cart_eq = CartesianConicEquation.std_ellipse(5.0, 3.0)
     assert cart_eq == polar_eq.to_cartesian()
 
     # Standard hyperbola
     polar_eq = PolarConicEquation.std_hyperbola(5.0, 3.0)
+    assert polar_eq.other_focus == ProjectivePoint(np.sqrt(34), 0, 1)
     cart_eq = CartesianConicEquation.std_hyperbola(5.0, 3.0)
     assert cart_eq == polar_eq.to_cartesian()
 
