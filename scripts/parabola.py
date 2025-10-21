@@ -9,9 +9,10 @@ import numpy as np
 import math
 from ray import Point, Vector
 from trail import make_trail
-from wavefront import Wavefront
+from wavefront import Wavefront, Isotopy
 from polyfunction import Conic
 from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
+from conic import ConicSection, PolarConicEquation, CartesianConicEquation, Point2D, ArcEnvelope
 
 RAY_WIDTH = 1.0
 RAY_OPACITY = 1.0
@@ -123,40 +124,117 @@ class ParabolaScene(m.Scene):
 class WavefrontScene(m.Scene):
     def construct(self):
         """Homotope one arc to another"""
-        # Construct a parabola y = ax^2 + c
-        a = 0.5
-        c = -3.0
-        self.focus = Point(0, c + 1 / (4 * a))
-        self.vertex = Point(0, c)
-        self.conic = Conic(a, 0, 0, 0, -1.0, c)
-
-        # Drawing
-        parabola = Parabola(self.focus.to_array(), self.vertex.to_array(), -6, 6).make_curve()
-        focus_dot = m.Dot(self.focus.coords(), radius=0.08, color=m.RED)
-        self.add(parabola, focus_dot)
-
-        # Construct wavefront
-        center = self.focus.to_array()
-        w = Wavefront(center=center, a=a)
-
-        # Make a series of cascading wavefronts
-        def make_anim(delay):
-            arc = w.make_arc(0.1)
-            return [
-                AnimationEvent.wait(delay),
-                AnimationEvent(
-                    header=[Add(arc)],
-                    middle=w.isotopy(arc, old_radius=0.1, new_radius=4.1, run_time=3.6),
-                    footer=[Remove(arc)]
-                ),
-                AnimationEvent.wait(2.0 - delay)
-            ]
+        # Construct an ellipse
+        conic = ConicSection.from_polar(PolarConicEquation.std_ellipse(4.0, 3.0))
+        main_focus = conic.focus
+        other_focus = conic.other_focus
         
+        self.add(m.Ellipse(width=2 * 4.0, height=2 * 3.0, color=m.BLUE))
+
+        # Polar equations defined around the main focus and other focus.
+        polar_eq_main = conic.polar_eq
+        polar_eq_other = PolarConicEquation(other_focus, polar_eq_main.e, polar_eq_main.c, np.pi + polar_eq_main.theta_0)
+
+        # Make the envelope corresponding to each focus
+        main_envelope = ArcEnvelope(
+            center=main_focus,
+            bounds=polar_eq_main.bounds()
+            )
+        other_envelope = ArcEnvelope(
+            center = other_focus.to_cartesian(),
+            bounds=polar_eq_other.bounds()
+        )
+        
+        # Animate the wavefront emanating from the main focus
+        r1 = 0.01
+        start_angle, stop_angle = main_envelope.bounds(r1)
+        arc1 = m.Arc(
+            arc_center=(main_envelope.center.x, main_envelope.center.y, 0),
+            radius=r1,
+            start_angle=start_angle,
+            angle=stop_angle - start_angle
+            )
+        i1 = Isotopy(
+            isotopy=main_envelope.isotopy(r1, 4.0 + np.sqrt(7) - r1),
+            mobject=arc1,
+            rate_func=m.linear,
+            run_time=(4.0 + np.sqrt(7) - 2 * r1)/2
+            )
+        
+        # Animate the wavefront converging on the second focus
+        r2 = 3.99 + np.sqrt(7)
+        start_angle, stop_angle = other_envelope.bounds(r2)
+        arc2 = m.Arc(
+            arc_center=(other_envelope.center.x, other_envelope.center.y, 0),
+            radius=r2,
+            start_angle=start_angle,
+            angle=stop_angle - start_angle
+            )
+        i2 = Isotopy(
+            isotopy=other_envelope.isotopy(r2, 4.0 + np.sqrt(7) - r2),
+            mobject=arc2,
+            rate_func=m.linear,
+            run_time=(3.98 + np.sqrt(7))/2
+            )
+        
+        # Play them simultaneously, with an appropriate delay
         sequences = []
-        for delay in np.linspace(0.1, 1.9, 10):
-            sequences.append(make_anim(delay))
+        sequences.append([
+            AnimationEvent(
+                header=[Add(arc1)],
+                middle=i1,
+                footer=[Remove(arc1)]
+            ),
+            AnimationEvent.wait((3.98 - np.sqrt(7))/2),
+            ])
+        sequences.append([
+            AnimationEvent.wait((3.98 - np.sqrt(7))/2),
+            AnimationEvent(
+                header=[Add(arc2)],
+                middle=i2,
+                footer=[Remove(arc2)]
+            )
+            ])
+
         symphony = Symphony(sequences)
         symphony.animate(self)
+
+        # Construct wavefronts
+
+        # # Construct a parabola y = ax^2 + c
+        # a = 0.5
+        # c = -3.0
+        # self.focus = Point(0, c + 1 / (4 * a))
+        # self.vertex = Point(0, c)
+        # self.conic = Conic(a, 0, 0, 0, -1.0, c)
+
+        # # Drawing
+        # parabola = Parabola(self.focus.to_array(), self.vertex.to_array(), -6, 6).make_curve()
+        # focus_dot = m.Dot(self.focus.coords(), radius=0.08, color=m.RED)
+        # self.add(parabola, focus_dot)
+
+        # # Construct wavefront
+        # center = self.focus.to_array()
+        # w = Wavefront(center=center, a=a)
+
+        # # Make a series of cascading wavefronts
+        # def make_anim(delay):
+        #     arc = w.make_arc(0.1)
+        #     return [
+        #         AnimationEvent.wait(delay),
+        #         AnimationEvent(
+        #             header=[Add(arc)],
+        #             middle=w.isotopy(arc, old_radius=0.1, new_radius=4.1, run_time=3.6),
+        #             footer=[Remove(arc)]
+        #         ),
+        #         AnimationEvent.wait(2.0 - delay)
+        #     ]
+        
+        # sequences = []
+        # for delay in np.linspace(0.1, 1.9, 10):
+        #     sequences.append(make_anim(delay))
+        # symphony = Symphony(sequences)
+        # symphony.animate(self)
 
 def animate_trajectory(
     points: List[Point], speed: float = 4.0

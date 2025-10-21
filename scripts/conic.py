@@ -10,6 +10,7 @@ from polyfunction import PolyFunction
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
 COEFF_TOLERANCE = 1e-5
+ANGLE_TOLERANCE = 1e-5
 
 def isclose(a: float, b: float):
     """Tolerances for computation"""
@@ -72,8 +73,9 @@ IsotopyFn = Callable[[float, float, float, float, float], tuple[float, float, fl
 ### Types which specify wavefronts
 
 """A function which takes a radius r as input, and returns the minimum and maximum
-values of theta on the arc at distance r from the focus and in the same plane region
-as the focus """
+angles θmin and θmax on the arc at distance r from the focus and in the same plane region
+as the focus. The angles should satisfy 0 < θmax - θmin < 2 * π and should vary continuously
+with the radius."""
 BoundsFn = Callable[[float], tuple[float, float]]
 
 class Arc:
@@ -91,8 +93,11 @@ class ArcEnvelope:
     """An ArcEnvelope is a function which takes a radius value as input and produces angle bounds
     as output. It defines a region containing the center point as the union of arcs over
     all positive radii."""
-    center: tuple[float, float]
+    center: Point2D
     bounds: BoundsFn
+    def __init__(self, center: Point2D, bounds: BoundsFn):
+        self.center = center
+        self.bounds = bounds
 
     def interpolate_arcs(self, radius_1: float, radius_2: float) -> Callable[[float, float], float]:
         """Given an initial and final radius, defines a function which isotopes a point
@@ -110,15 +115,24 @@ class ArcEnvelope:
         """Converts the function interpolate_arcs into an isotopy in Cartesian coordinates."""
         def istpy(x: float, y: float, z: float, t: float, dt: float):
             # Convert to polar coordinates (r, θ)
-            vec = np.array([x - self.center[0], y - self.center[1]])
+            vec = np.array([x - self.center.x, y - self.center.y])
             r = np.linalg.norm(vec)
 
-            # Arcsin gives a value in [-π/2, π/2], so we must reflect over the y-axis
-            # if the original vector had negative x-coordinate.
-            theta = (np.pi - np.arcsin(vec[1] / r)) if vec[0] < 0 else np.arcsin(vec[1] / r)
+            # TODO Fix this.
 
-            # Get current arc and distance along it
+            # Arcsin always gives a value in [-π/2, π/2], so we must reflect over the y-axis
+            # if the original vector had negative x-coordinate.
+            if vec[0] < 0:
+                theta = (np.pi - np.arcsin(vec[1] / r))
+            else:
+                theta = np.arcsin(vec[1] / r)
+
+            # Get current arc and distance along it. May need to shift theta to lie in the angle bounds.
             min_angle, max_angle = self.bounds(r)
+            while theta < min_angle:
+                theta += 2 * np.pi
+            while theta > max_angle:
+                theta -= 2 * np.pi
             alpha = (theta - min_angle) / (max_angle - min_angle)
             
             # Get the corresponding point on the target arc
@@ -128,8 +142,8 @@ class ArcEnvelope:
 
             # Convert back to Cartesian coordinates
             return (
-                target_radius * np.cos(new_theta) + self.center[0],
-                target_radius * np.sin(new_theta) + self.center[1],
+                target_radius * np.cos(new_theta) + self.center.x,
+                target_radius * np.sin(new_theta) + self.center.y,
                 z,
                 t + dt
             )
@@ -199,20 +213,21 @@ class PolarConicEquation:
         """Returns a function which takes radii r as input, and outputs the minimum and
         maximum values of theta on the arc at distance r from the focus and in the same
         plane region as the focus."""
-        if self.c / self.e > 0:
-            def f(radius: float):
+        def f(radius: float):
+            if radius < self.c / (1 + self.e):
+                # angle = 0
+                return (self.theta_0, self.theta_0 + 2 * np.pi)
+            elif radius > self.c / (1 - self.e):
+                # angle = π
+                return (self.theta_0 + np.pi - ANGLE_TOLERANCE, self.theta_0 + np.pi + ANGLE_TOLERANCE)
+            else:
                 # Solve the defining equation for theta
-                angle = np.arccos(self.c / self.e * radius - 1 / self.e)
-                # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
-                # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
-                return  (self.theta_0 - angle + np.pi, self.theta_0 + angle + np.pi)
-        else:
-            def f(radius: float):
-                # Solve the defining equation for theta
-                angle = np.arccos(self.c / self.e * radius - 1 / self.e)
-                # Setting θ = θ_0 yields the smallest possible radius, so the arc must be
-                # centered on θ_0 + π if C > 0, and on θ_0 if C < 0.
-                return  (self.theta_0 - angle, self.theta_0 + angle)
+                cos_value = (-1 + self.c / radius) / self.e
+                assert abs(cos_value) <= 1
+                angle = np.arccos(cos_value)
+                # Setting θ = θ_0 yields the smallest possible radius, so the arc must go from
+                # θ_0 + angle to θ_0 + 2π - angle
+                return (self.theta_0 + angle, self.theta_0 + 2 * np.pi - angle)
 
         return f
 
@@ -580,7 +595,7 @@ class ConicType(Enum):
     Parabola = 2
     Hyperbola = 3
 
-class Conic:
+class ConicSection:
     """
     A conic section can be defined either from its Cartesian form Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0,
     or from its polar-coordinates form r = C / (1/E + cos(θ - θ_0)) around one focus.
@@ -597,7 +612,7 @@ class Conic:
 
         # Define the foci
         self.focus = polar_eq.focus
-        self.other_focus = polar_eq.other_focus()
+        self.other_focus = polar_eq.other_focus
 
         # Define the eccentricity
         self.eccentricity = polar_eq.e
@@ -613,46 +628,19 @@ class Conic:
             return ConicType.Hyperbola
 
     @classmethod
-    def from_cartesian(cls, cart_eq: CartesianConicEquation) -> Conic:
+    def from_cartesian(cls, cart_eq: CartesianConicEquation) -> ConicSection:
         """Initializes a conic section from a two-variable quadratic equation."""
-        Conic(polar_eq=cart_eq.to_polar(), cart_eq=cart_eq)
+        return ConicSection(polar_eq=cart_eq.to_polar(), cart_eq=cart_eq)
 
     @classmethod
-    def from_polar(cls, polar_eq: PolarConicEquation) -> Conic:
+    def from_polar(cls, polar_eq: PolarConicEquation) -> ConicSection:
         """Given one focus, the conic may be defined by a function of polar coordinates
         (r, θ) centered around that focus of the form
         r = C / (1/E + cos(θ - θ_0))"""
-        Conic(polar_eq=polar_eq, cart_eq=polar_eq.to_cartesian())
+        return ConicSection(polar_eq=polar_eq, cart_eq=polar_eq.to_cartesian())
 
     ### For animating wavefronts
 
-    def make_arc_from_main_focus(self, r: float) -> Arc:
-        # TODO Move this to PolarConicEquation?
-        """Given a distance r from the main focus, calculates angles (θ1, θ2) such that
-        the arc {(r, θ): θ1 < θ < θ2} has endpoints on the conic and lies inside the
-        section containing the focus. Then generates the Arc
-        
-        Used to animate spherical wavefronts centered around the main focus."""
-        # TODO
-        pass
-
-    def make_arc_from_other_focus(self, r: float) -> Arc | Segment:
-        # TODO Move this to PolarConicEquation?
-        """A spherical wavefront emanating from the main focus reflects off the
-        conic section and turns into a wavefront centered on the other focus.
-        Given a total travel distance r from the main focus, returns a specification of
-        the corresponding arc centered on the other focus with endpoints on the conic.
-        
-        - If the conic is an ellipse with distance sum d, this can be described by
-          polar coordinates {(d - r, θ): θ1 < θ < θ2} centered at the other focus.
-        - If the conic is a hyperbola with distance difference d, this can be described by
-          polar coordinates {(d + r, θ): θ1 < θ < θ2} centered at the other focus.
-        - If the conic is a parabola, this can be described by a line segment at
-          distance r from the directrix and endpoints on the parabola.
-
-        Used to animate spherical wavefronts centered around the other focus."""
-        # TODO
-        pass
 
 # Sample code to generate a propagating wavefront scene for an ellipse.
 if __name__ == "__main__":
