@@ -54,3 +54,7 @@ class PolyFunction:
                 return [(-b + sqrt_discriminant) / (2*a), (-b - sqrt_discriminant) / (2*a)]
         else:
             raise ValueError("Polynomial degree must be 2 or 3")
+
+if __name__ == "__main__":
+	# TODO Add tests.
+	pass

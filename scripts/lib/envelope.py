@@ -36,6 +36,8 @@ class ArcEnvelope:
         """Given an initial and final radius, defines a function which isotopes a point
         at angle θ on the first arc forward in time by t.
         """
+        # TODO This function is a problem if the initial arc is a full circle.
+        # We can solve this by setting the initial arc to (ε, 2π-ε)
         min_angle, max_angle = self.bounds(radius_1)
         def f(theta, t):
             alpha = (theta - min_angle) / (max_angle - min_angle)
@@ -50,8 +52,6 @@ class ArcEnvelope:
             # Convert to polar coordinates (r, θ)
             vec = np.array([x - self.center.x, y - self.center.y])
             r = np.linalg.norm(vec)
-
-            # TODO Fix this.
 
             # Arcsin always gives a value in [-π/2, π/2], so we must reflect over the y-axis
             # if the original vector had negative x-coordinate.
@@ -90,3 +90,7 @@ class SegmentEnvelope:
     
     def isotopy(self, radius_1: float, radius_2: float) -> IsotopyFn:
         pass
+
+if __name__ == "__main__":
+	# TODO Add tests.
+	pass

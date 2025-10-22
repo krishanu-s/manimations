@@ -12,7 +12,8 @@ from .polyfunction import PolyFunction
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
 COEFF_TOLERANCE = 1e-5
-ANGLE_TOLERANCE = 1e-5
+ANGLE_TOLERANCE = 1e-3
+RADIUS_TOLERANCE = 1e-3
 
 def isclose(a: float, b: float):
     """Tolerances for computation"""
@@ -80,15 +81,17 @@ class PolarConicEquation:
         """Returns a function which takes radii r as input, and outputs the minimum and
         maximum values of theta on the arc at distance r from the focus and in the same
         plane region as the focus."""
+        # TODO Something is broken about the bounds. Try pre-computing to ensure the result is continuous
         def f(radius: float):
-            if radius < self.c / (1 + self.e):
+            # Set to tolerance
+            if radius < (1 + RADIUS_TOLERANCE) * self.c / (1 + self.e):
                 # angle = 0
-                return (self.theta_0, self.theta_0 + 2 * np.pi)
-            elif radius > self.c / (1 - self.e):
+                return (self.theta_0 + ANGLE_TOLERANCE, self.theta_0 + 2 * np.pi - ANGLE_TOLERANCE)
+            elif radius > (1 - RADIUS_TOLERANCE) * self.c / (1 - self.e):
                 # angle = π
                 return (self.theta_0 + np.pi - ANGLE_TOLERANCE, self.theta_0 + np.pi + ANGLE_TOLERANCE)
             else:
-                # Solve the defining equation for theta
+                # Solve the defining equation for theta in (0, π)
                 cos_value = (-1 + self.c / radius) / self.e
                 assert abs(cos_value) <= 1
                 angle = np.arccos(cos_value)
@@ -237,7 +240,6 @@ class CartesianConicEquation:
             for name in ('c_xx', 'c_xy', 'c_yy', 'c_x', 'c_y', 'c_0')
         )
 
-
     def clone(self) -> CartesianConicEquation:
         return CartesianConicEquation(self.c_xx, self.c_xy, self.c_yy, self.c_x, self.c_y, self.c_0)
 
@@ -353,6 +355,7 @@ class CartesianConicEquation:
     
     ### For animating trajectories
 
+    # TODO Make this method use Point2D
     def restrict(self, ray: Ray) -> PolyFunction:
         """
         Constructs to a one-variable quadratic function on the given ray. Since points
@@ -381,6 +384,7 @@ class CartesianConicEquation:
 
         return polynomial
 
+    # TODO Make this method use Point2D
     def intersection(self, ray: Ray) -> float | None:
         """Calculates the first t-value where the ray intersects the conic. If there is no intersection,
 		returns np.inf. If the nearest intersection is too small for numerical precision purposes,
@@ -407,6 +411,7 @@ class CartesianConicEquation:
             case (min_tolerated_root, _):
                 return min_tolerated_root
 
+    # TODO Make this method use Point2D
     def tangent(self, point: Point3D) -> Hyperplane:
         """Produces the tangent hyperplane at the given point on the curve."""
 		# 0 = dP(x, y) = (2Ax + By + D)dx + (Bx + 2Cy + E)dy
@@ -416,7 +421,8 @@ class CartesianConicEquation:
 		)
         return Hyperplane(normal, point)
 
-    def make_trajectory(self, start: Point, direction: Vector, total_dist: float):
+    # TODO Make this method use Point2D
+    def make_trajectory(self, start: Point3D, direction: Vector3D, total_dist: float) -> list[Point3D]:
         """
         Given a starting point and direction, produces a sequence of points such that the connecting line
         segments are the trajectory of the point as it bounces off the fixed conic.
@@ -506,7 +512,6 @@ class ConicSection:
         r = C / (1/E + cos(θ - θ_0))"""
         return ConicSection(polar_eq=polar_eq, cart_eq=polar_eq.to_cartesian())
 
-    ### For animating wavefronts
 
 
 # Tests.

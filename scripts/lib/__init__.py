@@ -4,5 +4,5 @@ from .isotopy import IsotopyFn, Isotopy
 from .polyfunction import PolyFunction
 from .conic import CartesianConicEquation, PolarConicEquation, ConicSection
 from .envelope import ArcEnvelope, SegmentEnvelope
-from .symphony import Symphony, AnimationEvent, Add, Remove
-from .trail import RayObject, make_trail
+from .symphony import Symphony, Sequence, AnimationEvent, Add, Remove
+from .trail import RayObject, make_trail, animate_trajectory

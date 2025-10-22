@@ -159,3 +159,8 @@ class Hyperplane:
 			return np.inf  # Intersection point is behind the ray's start point
 
 		return t
+
+
+if __name__ == "__main__":
+	# TODO Add tests.
+	pass

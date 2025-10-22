@@ -56,3 +56,7 @@ class ProjectivePoint:
         assert self.z != 0, "Cannot convert the point at infinity to Cartesian coordinates."
         return Point2D(self.x / self.z, self.y / self.z)
     
+
+if __name__ == "__main__":
+	# TODO Add tests.
+	pass

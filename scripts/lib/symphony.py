@@ -37,8 +37,8 @@ def split(animation: m.Animation, alpha: float) -> tuple[m.Animation, m.Animatio
 		assert animation.rate_func == m.linear
 		midpoint = path.point_from_proportion(alpha)
 		return (
-			m.MoveAlongPath(mobj, m.Line(path.start, midpoint), run_time=alpha * rt, rate_func=lambda x: x),
-			m.MoveAlongPath(mobj, m.Line(midpoint, path.end), run_time=(1 - alpha) * rt, rate_func=lambda x: x)
+			m.MoveAlongPath(mobj, m.Line(path.start, midpoint), run_time=alpha * rt, rate_func=m.linear),
+			m.MoveAlongPath(mobj, m.Line(midpoint, path.end), run_time=(1 - alpha) * rt, rate_func=m.linear)
 		)
 	elif isinstance(animation, Isotopy):
 		isotopy = animation.isotopy
@@ -168,6 +168,10 @@ class Symphony:
 
 		# Make a large list scene_events of all triples (start_time, SequenceIndex, SceneEventIndex), ordered by time.
 		# Eliminate any duplicate times from this list.
+		# TODO Deal with the situation where two sequences have event changes
+		#      at the same time.
+		# TODO Switch over to end times instead of start times to ensure everything is executed.
+		# TODO Figure out why some "Remove" footers are never getting executed.
 		scene_events = []
 		times = {}
 		for seq_ind, seq in enumerate(self.sequences):
@@ -218,5 +222,10 @@ class Symphony:
 			# Move the current time forward
 			current_time = t
 
-		# Play the final portion
-		play_in_parallel(list(executing.values()), scene)
+		# Play the final portion if there are any left
+		to_execute = [e for e in executing.values() if e is not None]
+		play_in_parallel(to_execute, scene)
+
+if __name__ == "__main__":
+	# TODO Add tests.
+	pass
