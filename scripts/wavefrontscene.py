@@ -1,9 +1,11 @@
 from __future__ import annotations
 import manim as m
 import numpy as np
-from lib.isotopy import Isotopy
-from lib.symphony import (Symphony, AnimationEvent, Add, Remove)
-from lib.conic import ConicSection, PolarConicEquation, ArcEnvelope
+from lib import (
+    Isotopy,
+    Symphony, AnimationEvent, Add, Remove,
+    ConicSection, PolarConicEquation, ArcEnvelope
+    )
 
 RAY_WIDTH = 1.0
 RAY_OPACITY = 1.0
