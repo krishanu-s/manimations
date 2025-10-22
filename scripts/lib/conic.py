@@ -1,11 +1,13 @@
+### Conic sections in the (projective) plane
 
 from __future__ import annotations
 from enum import Enum
 from typing import Callable
 from dataclasses import dataclass
 import numpy as np
-from ray import Point, Vector, Hyperplane, Ray
-from polyfunction import PolyFunction
+from .ray import Point, Vector, Hyperplane, Ray
+from .polyfunction import PolyFunction
+from .isotopy import IsotopyFn
 
 ROOT_TOLERANCE = 1e-4
 MAX_ROOT = 2 ** 32
@@ -642,7 +644,7 @@ class ConicSection:
     ### For animating wavefronts
 
 
-# Sample code to generate a propagating wavefront scene for an ellipse.
+# Tests.
 if __name__ == "__main__":
     # Parabola with focus at (0, 0) and focal length 1
     polar_eq = PolarConicEquation(Point2D(0, 0), 1, 2, 0)
@@ -668,96 +670,3 @@ if __name__ == "__main__":
     assert polar_eq.other_focus == ProjectivePoint(np.sqrt(34), 0, 1)
     cart_eq = CartesianConicEquation.std_hyperbola(5.0, 3.0)
     assert cart_eq == polar_eq.to_cartesian()
-
-
-
-    # class Isotopy(m.Homotopy):
-    #     def __init__(self, isotopy: IsotopyFn, run_time: float = 3, **kwargs):
-    #         self.isotopy = isotopy
-    #         # Keep a copy of initialization kwargs for re-initialization
-    #         self.kwargs = kwargs
-    #         def homotopy(x, y, z, t):
-    #             x1, y1, z1, t1 = isotopy(x, y, z, 0, t)
-    #             return x1, y1, z1
-    #         super().__init__(homotopy=homotopy, run_time=run_time, **kwargs)
-
-    # import manim as m
-    # from symphony import (Symphony, Sequence, AnimationEvent, Add, Remove)
-    # # Ellipse centered at (0, 0) with radii 5 and 3
-    # cart_eq = CartesianConicEquation(c_xx=1/25, c_yy=1/16, c_0=1.0)
-    # conic = Conic.from_cartesian(cart_eq)
-    # main_focus = conic.focus
-    # other_focus = conic.other_focus
-
-    # assert main_focus.x == 4.0
-    # assert main_focus.y == 0.0
-    # assert other_focus.x / other_focus.z == -4.0
-    # assert other_focus.y / other_focus.z == 0.0
-
-    # # Polar equations defined around the main focus and other focus.
-    # polar_eq_main = conic.polar_eq
-    # polar_eq_other = PolarConicEquation(other_focus, polar_eq_main.e, polar_eq_main.c, np.pi + polar_eq_main.theta_0)
-
-    # # Make the envelope corresponding to each focus
-    # main_envelope = ArcEnvelope(
-    #     center=main_focus,
-    #     bounds=polar_eq_main.bounds()
-    #     )
-    # other_envelope = ArcEnvelope(
-    #     center = other_focus.to_cartesian(),
-    #     bounds=polar_eq_other.bounds()
-    # )
-
-    # # Make isotopies for animation
-    # # TODO Make several here.
-    # r1 = 0.05
-    # start_angle, stop_angle = main_envelope.bounds(r1)
-    # arc1 = m.Arc(
-    #     arc_center=tuple(*main_envelope.center, 0),
-    #     radius=r1,
-    #     start_angle=start_angle,
-    #     angle=stop_angle - start_angle
-    #     )
-    # i1 = Isotopy(
-    #     isotopy=main_envelope.isotopy(0.05, 8.95),
-    #     mobject=arc1,
-    #     rate_func=m.linear,
-    #     run_time=8.9
-    #     )
-    
-    # r2 = 8.95
-    # start_angle, stop_angle = other_envelope.bounds(r2)
-    # arc2 = m.Arc(
-    #     arc_center=tuple(*other_envelope.center, 0),
-    #     radius=r2,
-    #     start_angle=start_angle,
-    #     angle=stop_angle - start_angle
-    #     )
-    # i2 = Isotopy(
-    #     isotopy=other_envelope.isotopy(8.95, 0.05),
-    #     mobject=arc2,
-    #     rate_func=m.linear,
-    #     run_time=8.9
-    #     )
-    
-    # # Play them simultaneously
-    # sequences = []
-    # sequences.append([AnimationEvent(
-    #     header=[Add(arc1)],
-    #     middle=i1,
-    #     footer=[Remove(arc1)]
-    # )])
-    # sequences.append([AnimationEvent(
-    #     header=[Add(arc2)],
-    #     middle=i2,
-    #     footer=[Remove(arc2)]
-    # )])
-
-    # symphony = Symphony(sequences).animate()
-    
-# TODO Test all functions in the polar and Cartesian form.
-# def test_1():
-#     polar_eq = PolarConicEquation(Point2D(0, 0), 1, 1, 0)
-#     cart_eq = polar_eq.to_cartesian()
-#     new_polar_eq = cart_eq.to_polar()
-#     assert polar_eq == new_polar_eq

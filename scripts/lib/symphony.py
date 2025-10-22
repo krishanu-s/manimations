@@ -1,10 +1,9 @@
+### Tools to play several sequences of animations in parallel
 
 from __future__ import annotations
-from typing import Tuple
 from dataclasses import dataclass
 import manim as m
-from wavefront import Isotopy
-from copy import deepcopy
+from .isotopy import Isotopy
 
 """The minimum runtime allowed for an AnimationEvent. AnimationEvents with runtime
 shorter than this will be deleted."""
@@ -26,7 +25,8 @@ class Remove:
 Bookend = list[Add | Remove]
 
 def split(animation: m.Animation, alpha: float) -> tuple[m.Animation, m.Animation]:
-	"""Splits an animation into two pieces of lengths alpha * runtime and (1-alpha) * runtime."""
+	"""Splits an animation into two pieces of lengths alpha * runtime and (1-alpha) * runtime,
+	such that their composition yields the original animation."""
 	rt = animation.run_time
 	if isinstance(animation, m.Wait):
 		return m.Wait(alpha * rt), m.Wait((1 - alpha) * rt)
@@ -43,6 +43,7 @@ def split(animation: m.Animation, alpha: float) -> tuple[m.Animation, m.Animatio
 	elif isinstance(animation, Isotopy):
 		isotopy = animation.isotopy
 
+		# TODO This can be numerically unstable if alpha is very close to 1.
 		def first_istpy(x, y, z, t, dt):
 			x1, y1, z1, t1 = isotopy(x, y, z, t * alpha, dt * alpha)
 			return x1, y1, z1, t1 / alpha
@@ -197,7 +198,11 @@ class Symphony:
 			for ind, event in executing.items():
 				if event is None:
 					continue
-
+				
+				# TODO In some cases, this may result in a very short remainder,
+				# which can create numerical instability with isotopies.
+				# We should see about handling this case, e.g. if elapsed_time is extremely
+				# close to the length of the event
 				event_fragment, remainder = event.split(elapsed_time)
 				to_execute.append(event_fragment)
 				# If this depleted the executing event in sequences[ind], pop off the next one

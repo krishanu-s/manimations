@@ -1,17 +1,17 @@
 # Animation of rays bouncing within an ellipse.
+# TODO Replace this with an updated version
 
 # Command line build instructions: manim -pql filename.py SceneName
 
 from __future__ import annotations
-from typing import List, Optional
+from typing import List
 import manim as m
 import numpy as np
 import math
-from copy import deepcopy
-from ray import Point, Vector, Hyperplane, Ray
-from trail import RayObject, make_trail, Wavefront
-from polyfunction import Conic
-from symphony import (play_in_parallel, Symphony, Sequence, AnimationEvent, Add, Remove, Bookend)
+from lib.ray import Point, Vector, Ray
+from lib.trail import make_trail, Wavefront
+from lib.polyfunction import Conic
+from lib.symphony import (Sequence, AnimationEvent, Add, Remove)
 
 RAY_WIDTH = 1.0
 RAY_OPACITY = 1.0

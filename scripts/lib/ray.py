@@ -1,7 +1,6 @@
-### 2D Euclidean geometry
+### 2D and 3D Euclidean geometry
 
 from __future__ import annotations
-from typing import Optional, Tuple
 import numpy as np
 
 # Tolerances for floating point comparisons
