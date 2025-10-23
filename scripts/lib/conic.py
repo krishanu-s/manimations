@@ -1,4 +1,5 @@
-### Conic sections in the (projective) plane
+"""Conic sections in the (projective) plane, defined by an equation in
+either polar or cartesian form."""
 
 from __future__ import annotations
 from enum import Enum
@@ -135,13 +136,13 @@ class PolarConicEquation:
         """Substitutes y -> (y - c), translating the graph c units upward."""
         self.focus.translate_y(a)
         self.other_focus.translate_y(a)
-    
+
     def rotate(self, theta: float):
         """Rotates the graph counterclockwise around the focus by θ by applying the substitution
         x ->  x * cos(θ) + y * sin(θ)
         y -> -x * sin(θ) + y * cos(θ)
         """
-        self.theta_0 -= theta
+        self.theta_0 += theta
         self.other_focus.translate_x(-self.focus.x)
         self.other_focus.translate_y(-self.focus.y)
         self.other_focus.rotate(theta)
@@ -153,11 +154,20 @@ class PolarConicEquation:
         """Produces the polar form of the parabola my^2 = x, which has
         focus at (1/4m, 0) and vertex at (0, 0)."""
         assert m != 0
-        return PolarConicEquation(
-            focus=Point2D(x=0.25 / m, y=0),
-            e=1.0,
-            c=-0.5 / m,  # If c = 2, focal length would be 1
-            theta_0=0
+        # TODO Refactor.
+        if m > 0:
+            return PolarConicEquation(
+                focus=Point2D(x=0.25 / m, y=0),
+                e=1.0,
+                c=0.5 / m,  # If c = 2, focal length would be 1
+                theta_0=np.pi
+            )
+        else:
+            return PolarConicEquation(
+                focus=Point2D(x=0.25 / m, y=0),
+                e=1.0,
+                c=-0.5 / m,  # If c = 2, focal length would be 1
+                theta_0=0
             )
     
     @classmethod
@@ -416,7 +426,7 @@ class CartesianConicEquation:
         """Produces the tangent hyperplane at the given point on the curve."""
 		# 0 = dP(x, y) = (2Ax + By + D)dx + (Bx + 2Cy + E)dy
         normal = Vector3D(
-			2.0 * self.c_xx * point.x + self.c_xy * point.y * self.c_x,
+			2.0 * self.c_xx * point.x + self.c_xy * point.y + self.c_x,
 			self.c_xy * point.x + 2.0 * self.c_yy * point.y + self.c_y,
 		)
         return Hyperplane(normal, point)
@@ -430,6 +440,7 @@ class CartesianConicEquation:
         remaining_dist = total_dist
         points = [start.copy()]
         ray = Ray(start, direction)
+
         while True:
             next_t = self.intersection(ray)
 
@@ -483,13 +494,17 @@ class ConicSection:
         self.polar_eq: PolarConicEquation = polar_eq
         self.cart_eq: CartesianConicEquation = cart_eq
 
-        # Define the foci
-        self.focus = polar_eq.focus
-        self.other_focus = polar_eq.other_focus
-
-        # Define the eccentricity
-        self.eccentricity = polar_eq.e
-        assert self.eccentricity > 0
+    @property
+    def focus(self) -> Point2D:
+        return self.polar_eq.focus
+    
+    @property
+    def other_focus(self) -> ProjectivePoint:
+        return self.polar_eq.other_focus
+    
+    @property
+    def eccentricity(self) -> float:
+        return self.polar_eq.e
     
     def _type(self) -> ConicType:
         """Returns the type of conic."""
@@ -512,6 +527,47 @@ class ConicSection:
         r = C / (1/E + cos(θ - θ_0))"""
         return ConicSection(polar_eq=polar_eq, cart_eq=polar_eq.to_cartesian())
 
+    def translate_x(self, a: float):
+        self.polar_eq.translate_x(a)
+        self.cart_eq.translate_x(a)
+
+    def translate_y(self, a: float):
+        self.polar_eq.translate_y(a)
+        self.cart_eq.translate_y(a)
+
+    def rotate(self, theta: float):
+        self.polar_eq.rotate(theta)
+        self.cart_eq.rotate(theta)
+
+    def quadratic_bezier(self, distance: float = 10.) -> None | tuple[Point2D, Point2D, Point2D]:
+        """Checks whether the conic section is a parabola. If it is, generates three points
+        P0, P1, P2 from which a section of the parabola can be parametrized as
+        P(t) = (1-t)^2 * P0 + 2t(1-t) * P1 + t^2 * P2. It is assumed that any part of
+        the curve further than a given distance from the focus can be cut out from the
+        curve, thus giving a well-defined upper bound on how much of the curve to draw."""
+        if self._type() == ConicType.Parabola:
+            # First yield a quadratic Bezier triple for a parabola with the same C value,
+            # but angle 0 and focus at (0, 0). The Cartesian equation is
+            # x - C / 2 = (-1 / 2C) * y^2
+            assert distance > 0, f"Must give a positive picture frame size, not {distance}"
+            c = self.polar_eq.c
+            bezier = (
+                Point2D(-distance, np.sqrt(c * (c + 2 * distance))),
+                Point2D(c + distance, 0),
+                Point2D(-distance, -np.sqrt(c * (c + 2 * distance))),
+            )
+
+            # Rotate and then translate the bezier points
+            shifted_bezier = []
+            for p in bezier:
+                p.rotate(self.polar_eq.theta_0)
+                p.translate_x(self.focus.x)
+                p.translate_y(self.focus.y)
+                shifted_bezier.append(p)
+            
+            return tuple(shifted_bezier)
+            
+        return None
 
 
 # Tests.
@@ -540,3 +596,6 @@ if __name__ == "__main__":
     assert polar_eq.other_focus == ProjectivePoint(np.sqrt(34), 0, 1)
     cart_eq = CartesianConicEquation.std_hyperbola(5.0, 3.0)
     assert cart_eq == polar_eq.to_cartesian()
+
+    # TODO Test bounds of polar equation, as well as all of the other methods
+    # TODO Test methods of cartesian equation

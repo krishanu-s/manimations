@@ -17,12 +17,21 @@ class Point2D:
         self.x += a
     def translate_y(self, a: float):
         self.y += a
+    def rotate(self, theta: float):
+        c, s = np.cos(theta), np.sin(theta)
+        self.x, self.y = c * self.x - s * self.y, s * self.x + c * self.y
+    def __add__(self, other: Point2D) -> Point2D:
+        return Point2D(self.x + other.x, self.y + other.y)
+    def __mul__(self, scalar: float) -> Point2D:
+        return Point2D(self.x * scalar, self.y * scalar)
     def __eq__(self, other: Point2D):
         return isclose(self.x, other.x) and isclose(self.y, other.y)
     def __repr__(self):
         return f"({self.x:.3f}, {self.y:.3f})"
     def to_projective(self) -> ProjectivePoint:
         return ProjectivePoint(self.x, self.y, 1)
+    def to_triple(self) -> tuple[float, float, float]:
+        return (self.x, self.y, 0)
 
 @dataclass
 class ProjectivePoint:

@@ -25,11 +25,71 @@ RAY_COLOR = m.WHITE
 # changing over at exactly the same time.
 REFLECTION_DELAY = 1e-3
 
-
 class Parabola(m.Scene):
     """Parent class for parabola scenes."""
-    # TODO
-    pass
+    def _set_parameters(self):
+        """Sets the parameters of the parabola."""
+        self.focal_length = 1.0
+
+    def _make_conic(self):
+        """Adds a parabola and its to the scene, and sets the ConicSection object."""
+        # Build the conic section
+        polar_eq = PolarConicEquation.std_parabola(0.25 / self.focal_length)
+        polar_eq.translate_x(-self.focal_length)
+        polar_eq.rotate(np.pi/2)
+        polar_eq.translate_y(-2.5)
+        self.conic = ConicSection.from_polar(polar_eq)
+
+        # Draws the parabola as a cubic bezier curve
+        qbezier = self.conic.quadratic_bezier(distance=10.)
+        assert qbezier is not None
+        p0, p1, p2 = qbezier
+        cbezier = p0, (p0 + p1 * 2) * (1/3), (p1 * 2 + p2) * (1/3), p2
+
+        self.add(
+            m.CubicBezier(*[q.to_triple() for q in cbezier]),
+            m.Dot(self.conic.focus.to_triple(), radius=0.05),
+        )
+
+    def construct(self):
+        raise NotImplementedError
+
+class ParabolaTrajectory(Parabola):
+    def construct(self):
+        self._set_parameters()
+        self._make_conic()
+
+        # Set the directions of trajectories
+        # TODO Set them to be evenly spaced
+        num_directions = 20
+        w = 1 - 1 / num_directions
+        directions = [
+            Vector3D(np.sin(theta), -np.cos(theta))
+            for theta in np.linspace(-w * np.pi, w * np.pi, num_directions)
+        ]
+        speed = 3.0
+
+        # Make animations
+        sequences = []
+
+        cart_eq = self.conic.cart_eq
+        main_focus = self.conic.focus
+        
+        for direction in directions:
+            points = cart_eq.make_trajectory(
+                    start=Point3D(*main_focus.to_triple()),
+                    direction=direction,
+                    total_dist=10.0
+                )
+            seq = animate_trajectory(points, speed)
+            sequences.append(seq)
+
+        symphony = Symphony(sequences)
+        symphony.animate(self)
+
+class ParabolaWavefront(Parabola):
+    def construct(self):
+        raise NotImplementedError
 
 class Ellipse(m.Scene):
     """Parent class for Ellipse scenes."""
@@ -59,7 +119,7 @@ class EllipseTrajectory(Ellipse):
         self._make_conic()
 
         # Set the directions of trajectories
-        # TODO Set them to be even
+        # TODO Set them to be evenly spaced
         num_directions = 20
         w = 1 - 1 / num_directions
         directions = [
@@ -85,8 +145,6 @@ class EllipseTrajectory(Ellipse):
 
         symphony = Symphony(sequences)
         symphony.animate(self)
-
-    
 
 class EllipseWavefront(Ellipse):
     def construct(self):
