@@ -11,7 +11,8 @@ import numpy as np
 from lib import (
     Isotopy,
     Symphony, Sequence, AnimationEvent, Add, Remove,
-    ConicSection, PolarConicEquation, ArcEnvelope,
+    Point2D,
+    ConicSection, PolarConicEquation, ArcEnvelope, SegmentEnvelope,
     Vector3D, Point3D,
     animate_trajectory
     )
@@ -29,7 +30,9 @@ class Parabola(m.Scene):
     """Parent class for parabola scenes."""
     def _set_parameters(self):
         """Sets the parameters of the parabola."""
-        self.focal_length = 1.0
+        self.focal_length = 1.5
+        # Maximum distance that trajectories and waves travel before they disappear from the scene
+        self.distance = 10.0
 
     def _make_conic(self):
         """Adds a parabola and its to the scene, and sets the ConicSection object."""
@@ -40,8 +43,17 @@ class Parabola(m.Scene):
         polar_eq.translate_y(-2.5)
         self.conic = ConicSection.from_polar(polar_eq)
 
+        ## Set some properties to self
+        self.focus = self.conic.focus
+
+        # vector pointing from focus to vertex
+        v = Point2D(0.5, 0) * self.conic.polar_eq.c
+        v.rotate(self.conic.polar_eq.theta_0)
+        self.vertex = self.conic.focus + v
+
+
         # Draws the parabola as a cubic bezier curve
-        qbezier = self.conic.quadratic_bezier(distance=10.)
+        qbezier = self.conic.quadratic_bezier(distance=self.distance)
         assert qbezier is not None
         p0, p1, p2 = qbezier
         cbezier = p0, (p0 + p1 * 2) * (1/3), (p1 * 2 + p2) * (1/3), p2
@@ -79,7 +91,7 @@ class ParabolaTrajectory(Parabola):
             points = cart_eq.make_trajectory(
                     start=Point3D(*main_focus.to_triple()),
                     direction=direction,
-                    total_dist=10.0
+                    total_dist=self.distance
                 )
             seq = animate_trajectory(points, speed)
             sequences.append(seq)
@@ -89,7 +101,94 @@ class ParabolaTrajectory(Parabola):
 
 class ParabolaWavefront(Parabola):
     def construct(self):
-        raise NotImplementedError
+        self._set_parameters()
+        self._make_conic()
+
+        # Make envelopes
+        self._make_envelopes()
+
+        # Make animations
+        sequences = []
+        # TODO Make this part tweakable
+        for delay in np.linspace(0.1, 1.9, 10):
+            sequences.extend(self._make_wave(delay))
+
+        symphony = Symphony(sequences)
+        symphony.animate(self)
+    
+    def _make_envelopes(self):
+        # Arc envelope around the main focus
+        self.main_envelope = ArcEnvelope(center=self.conic.focus, bounds=self.conic.polar_eq.bounds())
+        
+        # Segment envelope
+        normal_vector = Point2D(-1, 0)
+        normal_vector.rotate(self.conic.polar_eq.theta_0)
+        def bounds(r: float) -> tuple[float, float]:
+            s = np.sqrt(abs(2*r * self.conic.polar_eq.c))
+            return (-s, s)
+        
+        self.other_envelope = SegmentEnvelope(
+            center=self.vertex,
+            bounds=bounds,
+            normal_vector=normal_vector
+        )
+
+    def _make_wave(self, delay: float, speed: float = 3.0, distance: float | None = None) -> list[Sequence]:
+        """
+        Animates a single spherical wave emanating from the main focus and 
+        emanating off to infinity as a plane wave.
+        The start time is delayed by a chosen amount."""
+        if not distance:
+            distance = self.distance
+        r1 = 0.01
+        start_angle, stop_angle = self.main_envelope.bounds(r1)
+        arc1 = m.Arc(
+            arc_center=self.main_envelope.center.to_triple(),
+            radius=r1,
+            start_angle=start_angle,
+            angle=stop_angle - start_angle,
+            stroke_color=m.BLUE,
+            stroke_opacity=0.5
+            )
+        seq1 = [
+            AnimationEvent.wait(delay),
+            AnimationEvent(
+                header=[Add(arc1)],
+                middle=Isotopy(
+                    isotopy=self.main_envelope.isotopy(r1, self.distance),
+                    mobject=arc1,
+                    rate_func=m.linear,
+                    run_time=(self.distance - r1)/speed
+                ),
+                footer=[Remove(arc1)]
+            ),
+        ]
+
+        r2 = 0.01
+        start_s, stop_s = self.other_envelope.bounds(r2)
+        start = self.other_envelope.to_cartesian(r2, start_s)
+        stop = self.other_envelope.to_cartesian(r2, stop_s)
+        arc2 = m.Line(
+            start=(start[0], start[1], 0),
+            end=(stop[0], stop[1], 0),
+            stroke_color=m.RED,
+            stroke_opacity=0.5
+            )
+        seq2 = [
+            AnimationEvent.wait(REFLECTION_DELAY + delay + (self.focal_length + r2)/speed),
+            AnimationEvent(
+                header=[Add(arc2)],
+                middle=Isotopy(
+                    isotopy=self.other_envelope.isotopy(r2, self.distance),
+                    mobject=arc2,
+                    rate_func=m.linear,
+                    run_time=(self.distance - r2)/speed
+                ),
+                footer=[Remove(arc2)]
+            ),
+        ]
+
+        return [seq1, seq2]
 
 class Ellipse(m.Scene):
     """Parent class for Ellipse scenes."""
@@ -183,7 +282,7 @@ class EllipseWavefront(Ellipse):
         r1 = 0.01
         start_angle, stop_angle = self.main_envelope.bounds(r1)
         arc1 = m.Arc(
-            arc_center=(self.main_envelope.center.x, self.main_envelope.center.y, 0),
+            arc_center=self.main_envelope.center.to_triple(),
             radius=r1,
             start_angle=start_angle,
             angle=stop_angle - start_angle,
@@ -207,7 +306,7 @@ class EllipseWavefront(Ellipse):
         r2 = a + c - 0.01
         start_angle, stop_angle = self.other_envelope.bounds(r2)
         arc2 = m.Arc(
-            arc_center=(self.other_envelope.center.x, self.other_envelope.center.y, 0),
+            arc_center=self.other_envelope.center.to_triple(),
             radius=r2,
             start_angle=start_angle,
             angle=stop_angle - start_angle,

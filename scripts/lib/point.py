@@ -20,6 +20,8 @@ class Point2D:
     def rotate(self, theta: float):
         c, s = np.cos(theta), np.sin(theta)
         self.x, self.y = c * self.x - s * self.y, s * self.x + c * self.y
+    def length(self):
+        return np.sqrt(self.x**2 + self.y**2)
     def __add__(self, other: Point2D) -> Point2D:
         return Point2D(self.x + other.x, self.y + other.y)
     def __mul__(self, scalar: float) -> Point2D:
@@ -32,6 +34,8 @@ class Point2D:
         return ProjectivePoint(self.x, self.y, 1)
     def to_triple(self) -> tuple[float, float, float]:
         return (self.x, self.y, 0)
+    def to_array(self) -> np.ndarray:
+        return np.array([self.x, self.y])
 
 @dataclass
 class ProjectivePoint:

@@ -9,12 +9,8 @@ from .point import Point2D, ProjectivePoint
 from .envelope import BoundsFn
 from .ray import Point3D, Vector3D, Hyperplane, Ray
 from .polyfunction import PolyFunction
+from .tolerances import ROOT_TOLERANCE, MAX_ROOT, COEFF_TOLERANCE, ANGLE_TOLERANCE, RADIUS_TOLERANCE
 
-ROOT_TOLERANCE = 1e-4
-MAX_ROOT = 2 ** 32
-COEFF_TOLERANCE = 1e-5
-ANGLE_TOLERANCE = 1e-3
-RADIUS_TOLERANCE = 1e-3
 
 def isclose(a: float, b: float):
     """Tolerances for computation"""
@@ -33,7 +29,11 @@ class PolarConicEquation:
     """An equation for r in terms of θ of the form r = C / (1 + E * cos(θ - θ_0)).
     Invariant under sending E -> -E, and θ_0 -> θ_0 + π, and also
     invariant under sending C -> -C and θ_0 -> θ_0 + π.
-    So we assume E >= 0 and C > 0."""
+    So we assume E >= 0 and C > 0.
+    
+    Note that θ = θ_0 points in the direction of the point nearest to the focus. Therefore,
+    the "bounds" function always yields arc bounds centered around θ_0 + π.
+    """
     focus: Point2D
     e: float
     c: float
@@ -84,23 +84,31 @@ class PolarConicEquation:
         plane region as the focus."""
         # TODO Something is broken about the bounds. Try pre-computing to ensure the result is continuous
         def f(radius: float):
+            # Solve the defining equation to give theta in (0, π)
+            cos_value = (-1 + self.c / radius) / self.e
+            assert abs(cos_value) <= 1
+            angle = np.arccos(cos_value)
+            # Setting θ = θ_0 yields the smallest possible radius, so the arc must go from
+            # θ_0 + angle to θ_0 + 2π - angle
+            angle = min(max(angle, ANGLE_TOLERANCE), np.pi - ANGLE_TOLERANCE)
+            return (self.theta_0 + angle, self.theta_0 + 2 * np.pi - angle)
+
+        def f_wrapped(radius: float):
             # Set to tolerance
             if radius < (1 + RADIUS_TOLERANCE) * self.c / (1 + self.e):
                 # angle = 0
                 return (self.theta_0 + ANGLE_TOLERANCE, self.theta_0 + 2 * np.pi - ANGLE_TOLERANCE)
-            elif radius > (1 - RADIUS_TOLERANCE) * self.c / (1 - self.e):
-                # angle = π
-                return (self.theta_0 + np.pi - ANGLE_TOLERANCE, self.theta_0 + np.pi + ANGLE_TOLERANCE)
             else:
-                # Solve the defining equation for theta in (0, π)
-                cos_value = (-1 + self.c / radius) / self.e
-                assert abs(cos_value) <= 1
-                angle = np.arccos(cos_value)
-                # Setting θ = θ_0 yields the smallest possible radius, so the arc must go from
-                # θ_0 + angle to θ_0 + 2π - angle
-                return (self.theta_0 + angle, self.theta_0 + 2 * np.pi - angle)
+                if self.e < 1:
+                    if radius > (1 - RADIUS_TOLERANCE) * self.c / (1 - self.e):
+                        # angle = π
+                        return (self.theta_0 + np.pi - ANGLE_TOLERANCE, self.theta_0 + np.pi + ANGLE_TOLERANCE)
+                    else:
+                        return f(radius)
+                else:
+                    return f(radius)
 
-        return f
+        return f_wrapped
 
     def to_cartesian(self) -> CartesianConicEquation:
         """Generates the Cartesian form."""
