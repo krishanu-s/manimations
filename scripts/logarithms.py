@@ -34,3 +34,38 @@ How would you calculate the logarithm?
 - 1 / (1+x) = 1 - x + x^2 - x^3 + ... ()
 - And we already calculated the area under each of these.
 - So a - a^2/2 + a^3/3 - ..., so long as a <= 1."""
+
+import manim as m
+
+class ParabolicQuadratureScene(m.Scene):
+    def construct(self):
+        # Draw axes and the curve y = x^2.
+
+        # Highlight the area under the curve from 0 to 1 in yellow. This can be
+        # done with a Axes object, which in turn creates Polygons
+        # Draw thin gridlines inside.
+        # Continuously homotope this to be the quadrature from 0 to 2.
+        # Break this region down further into 4 parts.
+        pass
+
+class CubicQuadratureScene(m.Scene):
+    def construct(self):
+        # Same thing for cubic
+
+        # Highlight the area under the curve from 0 to 1 in yellow. This can be
+        # done with a Axes object, which in turn creates Polygons
+        # Draw thin gridlines inside.
+        # Continuously homotope this to be the quadrature from 0 to 2.
+        # Break this region down further into 4 parts.
+        pass
+
+class QuarticQuadratureScene(m.Scene):
+    def construct(self):
+        # Same thing for cubic
+
+        # Highlight the area under the curve from 0 to 1 in yellow. This can be
+        # done with a Axes object, which in turn creates Polygons
+        # Draw thin gridlines inside.
+        # Continuously homotope this to be the quadrature from 0 to 2.
+        # Break this region down further into 4 parts.
+        pass

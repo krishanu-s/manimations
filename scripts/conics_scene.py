@@ -23,7 +23,8 @@ RAY_COLOR = m.WHITE
 
 # We incorporate a small delay between when a wavefront strikes a mirror and when it is
 # re-emitted. This ensures that the worldlines for the two waves don't have events 
-# changing over at exactly the same time.
+# changing over at exactly the same time. This hack could be averted through
+# a careful treatment of worldline event coincidences in symphony.py.
 REFLECTION_DELAY = 1e-3
 
 class Parabola(m.Scene):
@@ -331,4 +332,10 @@ class EllipseWavefront(Ellipse):
 
 class Hyperbola(m.Scene):
     # TODO
+    pass
+
+class HyperbolaTrajectory(Hyperbola):
+    pass
+
+class HyperbolaWavefront(Hyperbola):
     pass
