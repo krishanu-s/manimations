@@ -29,19 +29,23 @@ class UnwrappingScene(m.Scene):
         self.radius = 2.5
         self.theta = 1.8
 
+    def shift_coords(self, pt: np.ndarray):
+        """Shifts coordinates to make them appropriate for drawing in the scene"""
+        return self.center + self.radius * pt
+
     def draw_fixed_elements(self):
         """Draw the axes and unit circle."""
         self.add(
             # x-axis
             m.Line(
-                start=CENTER + np.array([-1.5 * self.radius, 0, 0]),
-                end=CENTER + np.array([1.5 * self.radius, 0, 0]),
+                start=self.shift_coords(np.array([-1.5, 0, 0])),
+                end=self.shift_coords(np.array([1.5, 0, 0])),
                 stroke_width=2.0,
             ),
             # y-axis
             m.Line(
-                start=CENTER + np.array([0, -1.5 * self.radius, 0]),
-                end=CENTER + np.array([0, 1.5 * self.radius, 0]),
+                start=self.shift_coords(np.array([0, -1.5, 0])),
+                end=self.shift_coords(np.array([0, 1.5, 0])),
                 stroke_width=2.0,
             ),
             # circle
@@ -59,8 +63,8 @@ class UnwrappingScene(m.Scene):
         theta = self.theta
         self.point = np.array([np.cos(theta), np.sin(theta), 0])
         self.add(
-            m.Line(start=CENTER, end=CENTER + self.radius * self.point, stroke_width=1.0),
-            m.Dot(point=CENTER + self.radius * self.point, radius=0.05),
+            m.Line(start=self.shift_coords(np.array([0, 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0),
+            m.Dot(point=self.shift_coords(self.point), radius=0.05),
         )
 
         # Arc
@@ -78,8 +82,8 @@ class UnwrappingScene(m.Scene):
         self.add(arc, arc_label)
 
         # Sine and cosine
-        sin_def = m.Line(start=CENTER + self.radius * np.array([np.cos(theta), 0, 0]), end=CENTER + self.radius * self.point, stroke_width=1.0)
-        cos_def = m.Line(start=CENTER + self.radius * np.array([0, np.sin(theta), 0]), end=CENTER + self.radius * self.point, stroke_width=1.0)
+        sin_def = m.Line(start=self.shift_coords(np.array([np.cos(theta), 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0)
+        cos_def = m.Line(start=self.shift_coords(np.array([0, np.sin(theta), 0])), end=self.shift_coords(self.point), stroke_width=1.0)
         self.add(sin_def, cos_def)
 
 
@@ -109,10 +113,10 @@ class UnwrappingScene(m.Scene):
         f = self.unwrapping_arc(n - 1)
         g = self.unwrapping_arc(n)
         line = m.DashedLine(
-            start=CENTER + self.radius * f(self.theta),
-            end=CENTER + self.radius * g(self.theta),
-            stroke_width=1.0,
-            stroke_color=m.PURPLE
+            start=self.shift_coords(f(self.theta)),
+            end=self.shift_coords(g(self.theta)),
+            stroke_width=1.5,
+            stroke_color=m.GREEN
         )
         if n % 4 == 1:
             offset = np.array([0.35, 0, 0])
@@ -122,13 +126,13 @@ class UnwrappingScene(m.Scene):
             offset = np.array([-0.35, 0, 0])
         else:
             offset = np.array([0, -0.35, 0])
-        line_label = m.MathTex(f"\\theta^{n} / {n}!", color=m.PURPLE, font_size=20).move_to(
-            CENTER + 0.5 * self.radius * (f(self.theta) + g(self.theta) + offset)
+        line_label = m.MathTex(f"\\theta^{n} / {n}!", color=m.GREEN, font_size=20).move_to(
+            self.shift_coords(0.5 * (f(self.theta) + g(self.theta))) + offset
         )
         arc = m.ParametricFunction(
             t_range=[0, self.theta],
-            function=lambda t: CENTER + self.radius * g(t),
-            stroke_width=1.0,
+            function=lambda t: self.shift_coords(g(t)),
+            stroke_width=1.5,
             stroke_color=m.BLUE,
         )
         self.add(line, arc)
