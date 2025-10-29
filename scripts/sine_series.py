@@ -15,14 +15,84 @@ Series for sine and cosine
 -
 """
 
+# TODO Animate "unwrapping"
+
 from math import factorial
 import numpy as np
 import manim as m
 
 CENTER = np.array([-1.5, -1.5, 0])
 
+### PARAMETRIZING THE UNWRAPPING ARCS
+# The arc along the unit circle defining the point is the 0-th arc.
+# It is parametrized by the function A_0(φ) = e^{i(θ-φ)} for φ in [0, θ].
+#
+# The k-th arc is defined by unwrapping the (k-1)st arc. It is parametrized
+# by a function A_k(φ) which satisfies
+# - A_k(0) = e^{iθ}
+# - A_k'(φ) = i^{k-1} * φ^k/k! * e^{i(θ-φ)}
+#
+# Integration by parts yields the recurrence
+# A_k(φ) = A_{k-1}(φ) + (iφ)^k/k! * e^{i(θ-φ)}
+# 
+# Thus, A_k(φ) = (sum_k (iφ)^k/k!) * e^{i(θ-φ)}
+
+### PARAMETRIZING THE UNWRAPPING PROCESS
+# We can describe the unwrapping of the k-th arc as a time-depending function
+# at each point of the arc, A_k(φ, t). It can be defined by the differential equation
+# - A_k(φ, t) = A_k(φ) for 0 <= t <= φ
+# - dA_k(φ, t)/dt = i^{k-1} * (t^k - φ^k)/k! * e^{i(θ-φ)} for φ <= t <= θ
+#
+# Integration by parts yields the recurrence
+# A_k(φ, t) = A_k(φ) + (A_{k-1}(t) - A_{k-1}(φ)) + ((it)^k - (iφ)^k)/k! * e^{i(θ-φ)}
+
+### CONSTRUCTING THE m.Homotopy
+# Given coordinates (x, y), we will first have to determine the angle φ
+# so that A_k(φ) = x + iy. This is the hard part.
+# Next, we will have to figure out how to advance this point forward by time t. This is
+# the easy part, as we just use the equation for A_k(φ, t).
 
 class UnwrappingScene(m.Scene):
+
+    def construct(self):
+        # Set the parameters for the scene
+        self.set_parameters()
+
+        # Draw the axes and unit circle.
+        self.draw_fixed_elements()
+
+        # Add point
+        self.draw_point()
+
+        # Make arc
+        arc = m.Arc(
+            arc_center=CENTER,
+            radius=self.radius,
+            start_angle=0,
+            angle=self.theta,
+            stroke_color=m.RED,
+        )
+        arc_label = m.MathTex("\\theta", color=m.RED, font_size=30).move_to(
+            CENTER
+            + self.radius * 0.8 * np.array([np.cos(self.theta / 2), np.sin(self.theta / 2), 0])
+        )
+        self.play(m.FadeIn(arc, arc_label))
+        self.play(m.FadeOut(arc_label))
+
+        # Unwrap arc
+        self.play(m.Homotopy())
+
+        # # Sine and cosine
+        # sin_def = m.Line(start=self.shift_coords(np.array([np.cos(theta), 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0)
+        # cos_def = m.Line(start=self.shift_coords(np.array([0, np.sin(theta), 0])), end=self.shift_coords(self.point), stroke_width=1.0)
+        # self.add(sin_def, cos_def)
+
+        # Add convergents
+        for i in range(0, 5):
+            self.add_convergent(i)
+        for i in range(5, 9):
+            self.add_convergent(i, add_labels=False)
+
     def set_parameters(self):
         """Set parameters for the scene."""
         self.center = CENTER
@@ -56,8 +126,7 @@ class UnwrappingScene(m.Scene):
 
     def draw_point(self):
         """
-        Draw the point at theta radians along the circle, and label the defining arc.
-        Also draw segments representing sine and cosine.
+        Draw the point at theta radians along the circle
         """
         # Point and segment connecting to the center of the circle
         theta = self.theta
@@ -67,30 +136,9 @@ class UnwrappingScene(m.Scene):
             m.Dot(point=self.shift_coords(self.point), radius=0.05),
         )
 
-        # Arc
-        arc = m.Arc(
-            arc_center=CENTER,
-            radius=self.radius,
-            start_angle=0,
-            angle=theta,
-            stroke_color=m.RED,
-        )
-        arc_label = m.MathTex("\\theta", color=m.RED, font_size=30).move_to(
-            CENTER
-            + self.radius * 0.8 * np.array([np.cos(theta / 2), np.sin(theta / 2), 0])
-        )
-        self.add(arc, arc_label)
-
-        # Sine and cosine
-        sin_def = m.Line(start=self.shift_coords(np.array([np.cos(theta), 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0)
-        cos_def = m.Line(start=self.shift_coords(np.array([0, np.sin(theta), 0])), end=self.shift_coords(self.point), stroke_width=1.0)
-        self.add(sin_def, cos_def)
-
-
-
     def unwrapping_arc(self, n: int):
         """Constructs the function defining the n-th unwrapping arc."""
-        assert n >= 0
+        assert n >= -1
         def parametrization(t):
             # Even part
             even_part = np.array([
@@ -108,8 +156,8 @@ class UnwrappingScene(m.Scene):
         return parametrization
 
     def add_convergent(self, n: int, add_labels: bool = True):
-        """Adds the n-th convergent"""
-        assert n > 0
+        """Adds the n-th convergent as a static element."""
+        assert n >= 0
         f = self.unwrapping_arc(n - 1)
         g = self.unwrapping_arc(n)
         line = m.DashedLine(
@@ -118,6 +166,7 @@ class UnwrappingScene(m.Scene):
             stroke_width=1.5,
             stroke_color=m.GREEN
         )
+
         if n % 4 == 1:
             offset = np.array([0.35, 0, 0])
         elif n % 4 == 2:
@@ -126,7 +175,15 @@ class UnwrappingScene(m.Scene):
             offset = np.array([-0.35, 0, 0])
         else:
             offset = np.array([0, -0.35, 0])
-        line_label = m.MathTex(f"\\theta^{n} / {n}!", color=m.GREEN, font_size=20).move_to(
+        
+        if n == 0:
+            line_label = m.MathTex(f"1", color=m.GREEN, font_size=20)
+        elif n == 1:
+            line_label = m.MathTex(f"\\theta", color=m.GREEN, font_size=20)
+        else:
+            line_label = m.MathTex(f"\\theta^{n} / {n}!", color=m.GREEN, font_size=20)
+        
+        line_label = line_label.move_to(
             self.shift_coords(0.5 * (f(self.theta) + g(self.theta))) + offset
         )
         arc = m.ParametricFunction(
@@ -138,19 +195,3 @@ class UnwrappingScene(m.Scene):
         self.add(line, arc)
         if add_labels:
             self.add(line_label)
-
-    def construct(self):
-        # Set the parameters for the scene
-        self.set_parameters()
-
-        # Draw the axes and unit circle.
-        self.draw_fixed_elements()
-
-        # Add point and defining arc
-        self.draw_point()
-
-        # Add convergents
-        for i in range(1, 5):
-            self.add_convergent(i)
-        for i in range(5, 9):
-            self.add_convergent(i, add_labels=False)
