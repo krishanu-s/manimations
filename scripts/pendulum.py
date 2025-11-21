@@ -577,7 +577,7 @@ class PendulumScene(m.Scene):
 class SimplePendulumScene(PendulumScene):
     def set_params(self):
         self.pendulum_type = SimplePendulum
-        self.run_time = 10.0
+        self.run_time = 2.0
         self.num_steps = 200
         self.l = 0.03
         self.length = 4.0
