@@ -3,6 +3,7 @@
 import math
 from typing import Callable, Any
 import numpy as np
+from scipy.special import ellipj
 import manim as m
 from lib import Point2D
 
@@ -258,14 +259,36 @@ class SimplePendulum(Pendulum):
     # def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
     #     """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
     #     pendulum, where x(t) is the arc position."""
-    #     raise NotImplementedError
+    #     theta0 = self.arc_length_to_angle(x0)
+    #     omega0 = self.arc_length_to_angle(v0)
+    #     f = self.analytic_solution_angle(theta0, omega0)
+    #     return lambda t: self.angle_to_arc_length(f(t))
     
     # def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
     #     """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
     #     pendulum, where θ(t) is the angle."""
     #     # TODO Write the terms as an infinite series. Then based on the given value of t_max,
     #     # decide how many terms of the series to include.
+    #     # TODO Express in terms of the jacobi elliptic functions
     #     raise NotImplementedError
+    
+    def period(self, theta: float, eps: float = 1e-4) -> float:
+        """
+        Given the maximal angle of swing, returns the length of a single period of oscillation.
+        Calculates to precision epsilon.
+        Ref: https://math.stackexchange.com/questions/2257095/exact-period-of-simple-pendulum
+        """
+        # k is between -1/sqrt(2) and 1/sqrt(2)
+        k = np.sin((theta + math.pi/2)/2)
+        total = 0
+        summand = 1
+        i = 1
+        # TODO Replace this with a "while" condition on the size of the summand.
+        while summand > eps:
+            total += summand
+            summand *= (k * (2*i-1)/(2*i)) ** 2
+            i += 1
+        return 2 * math.pi * self.l * total
 
     def angle_to_arc_length(self, theta: float) -> float:
         return self.l * theta
@@ -273,7 +296,7 @@ class SimplePendulum(Pendulum):
     def arc_length_to_angle(self, x: float) -> float:
         return x / self.l
 
-    def draw_string(self, a: float, theta: float) -> np.ndarray[float]:
+    def param_string(self, a: float, theta: float) -> np.ndarray[float]:
         """Returns 3D coordinates for the points along the pendulum, where theta is the angular
         position and a is the proportion of length along the pendulum."""
         return self.attach_point + a * self.length * np.array([np.sin(theta), - np.cos(theta), 0.])
@@ -407,7 +430,7 @@ class IsochronousPendulum(Pendulum):
             )
         return block_right,block_left
     
-    def draw_string(self, a: float, theta: float) -> np.ndarray[float]:
+    def param_string(self, a: float, theta: float) -> np.ndarray[float]:
         """Returns 3D coordinates for the points along the pendulum, where theta is the angular
         position and a is the proportion of length along the pendulum."""
         # TODO Fix this for the case where theta is negative.
@@ -479,7 +502,7 @@ class PendulumScene(m.Scene):
 
             # Add the pendulum string to the scene.
             curve = m.ParametricFunction(
-                function=lambda a: pendulum.draw_string(a, theta0),
+                function=lambda a: pendulum.param_string(a, theta0),
                 t_range=(0, 1, 0.1),
                 stroke_width = 1.5,
                 # stroke_color = [1., 1., 1.],
@@ -515,7 +538,7 @@ class PendulumScene(m.Scene):
 
             # Add the bob
             bob = m.Dot(
-                point=pendulum.draw_string(1, theta0),
+                point=pendulum.param_string(1, theta0),
                 radius=0.08,
                 fill_opacity=0.5,
                 fill_color=bob_color
@@ -530,7 +553,7 @@ class PendulumScene(m.Scene):
                 try:
                     a = curve.proportion_from_point(np.array([x, y, z]))
                     theta = angular_position(t)
-                    return pendulum.draw_string(a, theta)
+                    return pendulum.param_string(a, theta)
                 except:
                     return np.array([0., 0., 0.])
             
