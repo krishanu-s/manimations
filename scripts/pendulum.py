@@ -138,6 +138,7 @@ class RungeKutta2:
         self.val.translate_x((k1.x + 2 * k2.x + 2 * k3.x + k4.x) * dt/6)
         self.val.translate_y((k1.y + 2 * k2.y + 2 * k3.y + k4.y) * dt/6)
 
+# TODO Vectorize this method.
 class RungeKuttaAutonomous:
     """Method for forward-stepping a differential equation of the form x''(t) = f(x(t), x'(t))."""
     def __init__(self, t0: float,  val: Point2D,  f: Callable[[Point2D], float]
@@ -161,8 +162,12 @@ class RungeKuttaAutonomous:
 
 # TODO Move these into their own file called "oscillators.py" and standardize the interfaces.
 class Pendulum:
-    """Modeling various kinds of pendulums."""
-    l: float # 1/ω
+    """
+    Modeling various kinds of pendulums. The path of the pendulum bob can be parametrized
+    as (x(θ), y(θ)) with θ in [-π/2, π/2] where θ is the angle of the path, with θ = 0 being
+    the lowest point and θ = \pm π/2 being the endpoints where the path is vertical.
+    """
+    l: float # 1/ω^2
     length: float # For drawing
     attach_point: np.ndarray[float]
 
@@ -174,23 +179,42 @@ class Pendulum:
         self.attach_point = kwargs.get("attach_point", np.array([0.0, 0.0, 0.0]))
         self.length = kwargs.get("length", 3.0)
     
-    @property
-    def x(self):
-        """Angular position."""
-        return self.solver.val.x
-    @property
-    def v(self):
-        """Angular velocity."""
-        return self.solver.val.y
+    def solve(self, theta0: float, omega0: float, dt: float = 0.01, num_steps: int = 100) -> list[float]:
+        """Solves the differential equation with given initial conditions θ(0) and θ'(0),
+        using an analytic solver if available and otherwise deferring to Runge-Kutta.
+        Outputs a list of values θ(t) for t = 0, dt, 2 * dt, ..., N * dt."""
 
-    def set_initial_conditions(self, x0: float, v0: float):
-        """Sets the initial conditions for the pendulum and initializes a solver."""
-        # TODO Make this a RungeKuttaAutonomous
-        self.solver = RungeKutta2(t=0, val=Point2D(x0, v0), f=self.diff_eq)
+        if hasattr(self, 'analytic_solution_angle') and callable(self.analytic_solution_angle):
+            sol = self.analytic_solution_angle(theta0, omega0)
+            return [sol(k * dt) for k in range(0, num_steps + 1)]
+        else:
+            self.set_initial_conditions(theta0, omega0)
+            vals = [self.solver.val.to_array()]
+            for _ in range(num_steps):
+                self.step(dt, 10)
+                vals.append(self.solver.val.to_array()[0])
+            return vals
+
+    def set_initial_conditions(self, theta0: float, omega0: float):
+        """Sets the initial conditions for the pendulum in terms of angular position
+         and velocity, and initializes a solver."""
+        self.solver = RungeKuttaAutonomous(
+            t0=0,
+            val=Point2D(theta0, omega0),
+            f=self.diff_eq
+            )
         
-    def diff_eq(self, t: float, x: float) -> float:
+    def diff_eq(self, Point2D) -> float:
         """Differential equation for the second derivative of the angular position
         as a function of t and x. Implemented in the sub-class."""
+        raise NotImplementedError
+    
+    def angle_to_arc_length(self, theta: float) -> float:
+        """Converts an angular displacement in the range [-π/2, π/2] to an arc-length displacement."""
+        raise NotImplementedError
+    
+    def arc_length_to_angle(self, x: float) -> float:
+        """Converts an arc-length displacement to an angular displacement in the range [-π/2, π/2]."""
         raise NotImplementedError
     
     def kinetic_energy(self, v: float) -> float:
@@ -220,13 +244,34 @@ class Pendulum:
 
 class SimplePendulum(Pendulum):
     """Models a simple pendulum whose bob moves along a circular arc."""
-    def diff_eq(self, t, x):
-        # TODO Make this a function of x, x'
-        return -math.sin(x) / self.l
+
+    def diff_eq(self, val: Point2D) -> float:
+        """Since x'' = -g * sin(θ) and x = L * θ, we get θ'' = (-g/L) * sin(θ)."""
+        return -math.sin(val.x) / self.l
+    
     def kinetic_energy(self, v: float):
         return 0.5 * (self.l * v) ** 2
+    
     def potential_energy(self, x: float):
         return self.l * (1 - math.cos(x))
+    
+    # def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
+    #     """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
+    #     pendulum, where x(t) is the arc position."""
+    #     raise NotImplementedError
+    
+    # def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
+    #     """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
+    #     pendulum, where θ(t) is the angle."""
+    #     # TODO Write the terms as an infinite series. Then based on the given value of t_max,
+    #     # decide how many terms of the series to include.
+    #     raise NotImplementedError
+
+    def angle_to_arc_length(self, theta: float) -> float:
+        return self.l * theta
+    
+    def arc_length_to_angle(self, x: float) -> float:
+        return x / self.l
 
     def draw_string(self, a: float, theta: float) -> np.ndarray[float]:
         """Returns 3D coordinates for the points along the pendulum, where theta is the angular
@@ -234,19 +279,17 @@ class SimplePendulum(Pendulum):
         return self.attach_point + a * self.length * np.array([np.sin(theta), - np.cos(theta), 0.])
 
 class IsochronousPendulum(Pendulum):
-    """Models an isochronous pendulum whose bob moves along a cycloidal arc.
+    """
+    Models an isochronous pendulum whose bob moves along a cycloidal arc.
     
-    The path of the pendulum bob can be parametrized as (x(θ), y(θ)) with
-    θ in [-π/2, π/2] where θ is the angle of the path, with θ = 0 being
-    the lowest point and θ = \pm π/2 being the endpoints where the path
-    is vertical, by the equations x(θ) = 2θ + sin(2θ) and y(θ) = 1 - cos(2θ).
-    This is assuming the pendulum string has length 4.
+    The position of the pendulum is given by x(θ) = (L/4) * (2θ + sin(2θ))
+    and y(θ) = (L/4) * (1 - cos(2θ)), where L is the length.
 
     PROOF OF ISOCHRONICITY:
     The parametric equation for the path satisfies the following two relationships:
     
     - y'(θ)/x'(θ) = tan(θ), i.e. the slope to the horizontal is θ.
-    - √((x')^2 + (y')^2) = 4 * cos(θ), i.e. the arc length increases at this rate.
+    - √((x')^2 + (y')^2) = L * cos(θ), i.e. the arc length increases at this rate.
 
     Let's say that the linear velocity of the bob with respect to time t is given by
     v(t), and that the bob is at position (x(θ), y(θ)) for some time-dependent θ(t).
@@ -257,15 +300,15 @@ class IsochronousPendulum(Pendulum):
 
     We can express the angular velocity as 
     
-    (2) θ' = v / (4 * cos(θ))
+    (2) θ' = v / (L * cos(θ))
     
-    Thus, v'' = - g * cos(θ) * θ' = - (g/4) * v. It follows that v
+    Thus, v'' = - g * cos(θ) * θ' = - (g/L) * v. It follows that v
     (and also the position of the bob) satisfies Hooke's Law and always oscillates with
-    frequency ω = (√g)/2. The general solution is v(t) = Asin(ωt) + Bcos(ωt)
-    where A^2 + B^2 <= 4g.
+    frequency ω = √(g/L). The general solution is v(t) = Asin(ωt) + Bcos(ωt)
+    where A^2 + B^2 <= g/L.
 
     If the pendulum string has length L, equation (2) becomes θ' = v / (L * cos(θ)),
-    yielding v'' = - (g/L) * v.
+    yielding v'' = - (g/L) * v or x'' = (-g/L) * x
 
     MODELING THE OSCILLATION:
     We can either explicitly express the angle θ(t) as arcsin(v'(t)/g) for a valid solution
@@ -292,26 +335,50 @@ class IsochronousPendulum(Pendulum):
     def kinetic_energy(self, v: float):
         # TODO low priority
         raise NotImplementedError
+    
     def potential_energy(self, x: float):
         # TODO low priority
         raise NotImplementedError
     
-    def set_initial_conditions(self, x0: float, v0: float):
-        """Sets the initial conditions for the pendulum in terms of angular position
-         and velocity, and initializes a solver."""
-        # if x0.abs() > np.pi/2 - 0.1:
-        #     print("Cannot set an initial angle too close to pi/2.")
-        #     return
-            
-        self.solver = RungeKuttaAutonomous(
-            t0=0,
-            val=Point2D(x0, v0),
-            f=self.diff_eq
-            )
+    def angle_to_arc_length(self, theta: float, omega: float | None = None) -> float | tuple[float, float]:
+        """Converts an angular displacement (and velocity) in the range [-π/2, π/2] to an arc-length displacement (and velocity)."""
+        x = self.l * np.sin(theta)
+        if omega is None:
+            return x
+        else:
+            return x, self.l * np.cos(theta) * omega
+    
+    def arc_length_to_angle(self, x: float, v: float | None = None) -> float | tuple[float, float]:
+        """Converts an arc-length displacement (and velocity) to an angular displacement (and velocity) in the range [-π/2, π/2]."""
+        assert np.abs(x) <= self.l, "Exceeded the maximum allowed arc length."
+        theta = np.arcsin(x / self.l)
+        if v is None:
+            return theta
+        else:
+            return theta, v / np.sqrt(self.l ** 2 - self.x ** 2)
+    
+    def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
+        """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
+        pendulum, where x(t) is the arc position."""
+        # x(t) = Acos(ωt) + Bsin(ωt)
+        w = 1 / math.sqrt(self.l)
+        return lambda t: x0 * np.cos(w * t) + (v0 / w) * np.sin(w * t)
+    
+    def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
+        """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
+        pendulum, where θ(t) is the angle."""
+        x0, v0 = self.angle_to_arc_length(theta0, omega0)
+        f = self.analytic_solution_arc_length(x0, v0)
+        return lambda t: self.arc_length_to_angle(f(t), None)
     
     def diff_eq(self, val: Point2D):
         """Differential equation for the angular position θ, expressed as θ'' = f(θ, θ')"""
         return np.tan(val.x) * (- 1/self.l + val.y ** 2)
+    
+    def step(self, dt: float):
+        if self.solver.val.x > np.pi/2 - dt:
+            raise InterruptedError("Not advancing simulation for numerical stability reasons.")
+        super().step(dt)
     
     def wrapped_point(self, a: float) -> np.ndarray[float]:
         """Defines the position of the point on the pendulum string at ratio a when it
@@ -371,58 +438,48 @@ class IsochronousPendulum(Pendulum):
             # Extend out the remaining distance
             return wrapped_point + (a - d) * self.length * np.array([np.sin(theta), - np.cos(theta), 0.])
 
+class Spring:
+    """An oscillating spring."""
+    pass
 
 class PendulumScene(m.Scene):
-    @property
-    def pendulum_type(self) -> Pendulum:
-        raise NotImplementedError
-    
-    @property
-    def run_time(self) -> float:
+    def set_params(self):
+        self.pendulum_type = Pendulum
+        self.run_time = 3.0
+        self.num_steps = 100
         raise NotImplementedError
     
     def pendulum_kwargs(self):
         raise NotImplementedError
 
     def construct(self):
+        self.set_params()
 
         # Integrate the differential equation to solve for reference points
-        num_steps = 1000
-        dt = self.run_time / num_steps
+        dt = self.run_time / self.num_steps
         pendulum: Pendulum = self.pendulum_type(l=0.03, length=4.0)
 
         if isinstance(pendulum, IsochronousPendulum):
             self.add(*pendulum.make_blocks())
 
         
-        # Set the initial conditions and forward-solve
-        def get_vals(x0: float, v0: float) -> list[np.ndarray[float]]:
-            """Sets the initial conditions into the pendulum and """
-            pendulum.set_initial_conditions(x0=x0, v0=v0)
-            # TODO alternative: analytically solve and retrieve the values.
-            vals = [pendulum.solver.val.to_array()]
-            for _ in range(num_steps):
-                pendulum.step(dt, 10)
-                vals.append(pendulum.solver.val.to_array())
-            return vals
-        
-        def make_homotopy(x0, v0, bob_color=m.BLUE) -> m.Homotopy:
-            vals = get_vals(x0=x0, v0=v0)
+        def make_homotopy(theta0, omega0, bob_color=m.BLUE) -> m.Homotopy:
+            vals = pendulum.solve(theta0, omega0, dt, self.num_steps)
 
             def angular_position(t: float) -> float:
                 """Given a time t, finds the best-possible approximation to the angular
                 position at time t by interpolating between the two nearest points."""
                 if t == self.run_time:
-                    return vals[-1][0]
+                    return vals[-1]
                 else:
                     k = int(t // dt)
                     alpha = t / dt - k
-                    return (1 - alpha) * vals[k][0] + alpha * vals[k + 1][0]
+                    return (1 - alpha) * vals[k] + alpha * vals[k + 1]
 
 
             # Add the pendulum string to the scene.
             curve = m.ParametricFunction(
-                function=lambda a: pendulum.draw_string(a, x0),
+                function=lambda a: pendulum.draw_string(a, theta0),
                 t_range=(0, 1, 0.1),
                 stroke_width = 1.5,
                 # stroke_color = [1., 1., 1.],
@@ -446,13 +503,19 @@ class PendulumScene(m.Scene):
                 #   all of the handles in a vectorized fashion. The function "interpolate_submobject(alpha)"
                 # 
                 # This attribute is then directly used in the "interpolate_submobject" method.
+                #
+                # A third (perhaps most elegant) possible way: just as the coordinates of the anchor points
+                # P_0(t), P_1(t), ... are functions of t, the coordinates of the handles
+                # B_1(t), B_2(t), B_3(t), B_4(t), ... are linear combinations of the
+                # anchor point functions and can be stored. This is a direct operation on
+                # the homotopy function, and can be a subroutine of m.ParametrizedHomotopy.
                 make_smooth_after_applying_functions=True
             )
             self.add(curve)
 
             # Add the bob
             bob = m.Dot(
-                point=pendulum.draw_string(1, x0),
+                point=pendulum.draw_string(1, theta0),
                 radius=0.08,
                 fill_opacity=0.5,
                 fill_color=bob_color
@@ -475,17 +538,15 @@ class PendulumScene(m.Scene):
             return homotopy
         
         homotopies = [
-            make_homotopy(x0, 0., bob_color)
-            for x0, bob_color in zip(*self.pendulum_kwargs())]
+            make_homotopy(theta0, 0., bob_color)
+            for theta0, bob_color in zip(*self.pendulum_kwargs())]
         self.play(*homotopies)
 
 class SimplePendulumScene(PendulumScene):
-    @property
-    def run_time(self) -> float:
-        return 10.0
-    @property
-    def pendulum_type(self):
-        return SimplePendulum
+    def set_params(self):
+        self.pendulum_type = SimplePendulum
+        self.run_time = 3.0
+        self.num_steps = 500
     
     def pendulum_kwargs(self):
         initial_angles = np.linspace(0.1, 1.0, 5)
@@ -493,14 +554,12 @@ class SimplePendulumScene(PendulumScene):
         return initial_angles, colors
 
 class IsochronousPendulumScene(PendulumScene):
-    @property
-    def run_time(self) -> float:
-        return 10.0
-    @property
-    def pendulum_type(self):
-        return IsochronousPendulum
+    def set_params(self):
+        self.pendulum_type = IsochronousPendulum
+        self.run_time = 3.0
+        self.num_steps = 100
     
     def pendulum_kwargs(self):
-        initial_angles = np.linspace(0.1, 1.0, 5)
+        initial_angles = np.linspace(0.1, np.pi/2, 5)
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
