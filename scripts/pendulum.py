@@ -185,16 +185,21 @@ class Pendulum:
         using an analytic solver if available and otherwise deferring to Runge-Kutta.
         Outputs a list of values θ(t) for t = 0, dt, 2 * dt, ..., N * dt."""
 
-        if hasattr(self, 'analytic_solution_angle') and callable(self.analytic_solution_angle):
+        try:
             sol = self.analytic_solution_angle(theta0, omega0)
             return [sol(k * dt) for k in range(0, num_steps + 1)]
-        else:
+        except:
             self.set_initial_conditions(theta0, omega0)
             vals = [self.solver.val.to_array()]
             for _ in range(num_steps):
                 self.step(dt, 10)
                 vals.append(self.solver.val.to_array()[0])
             return vals
+        
+    def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
+        """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
+        pendulum, where θ(t) is the angle."""
+        raise NotImplementedError
 
     def set_initial_conditions(self, theta0: float, omega0: float):
         """Sets the initial conditions for the pendulum in terms of angular position
@@ -256,21 +261,27 @@ class SimplePendulum(Pendulum):
     def potential_energy(self, x: float):
         return self.l * (1 - math.cos(x))
     
-    # def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
-    #     """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
-    #     pendulum, where x(t) is the arc position."""
-    #     theta0 = self.arc_length_to_angle(x0)
-    #     omega0 = self.arc_length_to_angle(v0)
-    #     f = self.analytic_solution_angle(theta0, omega0)
-    #     return lambda t: self.angle_to_arc_length(f(t))
+    def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
+        """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
+        pendulum, where x(t) is the arc position."""
+        theta0 = self.arc_length_to_angle(x0)
+        omega0 = self.arc_length_to_angle(v0)
+        f = self.analytic_solution_angle(theta0, omega0)
+        return lambda t: self.angle_to_arc_length(f(t))
     
-    # def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
-    #     """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
-    #     pendulum, where θ(t) is the angle."""
-    #     # TODO Write the terms as an infinite series. Then based on the given value of t_max,
-    #     # decide how many terms of the series to include.
-    #     # TODO Express in terms of the jacobi elliptic functions
-    #     raise NotImplementedError
+    def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
+        """Given (θ(0), θ'(0)), returns an explicit function θ(t) describing the motion of the
+        pendulum, where θ(t) is the angle.
+        Ref: https://en.wikipedia.org/wiki/Jacobi_elliptic_functions"""
+        if omega0 == 0:
+            k = np.sin(theta0 / 2)
+            def soln(t):
+                _, cn, dn, _ = ellipj(math.sqrt(1 / self.l) * t, k**2)
+                cd = cn / dn
+                return 2 * np.arcsin(k * cd)
+            return soln
+        else:
+            raise NotImplementedError("Analytic solution not computed for nonzero initial velocity")
     
     def period(self, theta: float, eps: float = 1e-4) -> float:
         """
@@ -280,14 +291,13 @@ class SimplePendulum(Pendulum):
         """
         # k is between -1/sqrt(2) and 1/sqrt(2)
         k = np.sin((theta + math.pi/2)/2)
-        total = 0
         summand = 1
-        i = 1
-        # TODO Replace this with a "while" condition on the size of the summand.
+        total = summand
+        i = 0
         while summand > eps:
-            total += summand
-            summand *= (k * (2*i-1)/(2*i)) ** 2
             i += 1
+            summand *= (k * (2*i-1)/(2*i)) ** 2
+            total += summand
         return 2 * math.pi * self.l * total
 
     def angle_to_arc_length(self, theta: float) -> float:
@@ -339,9 +349,6 @@ class IsochronousPendulum(Pendulum):
 
     θ'' = tan(θ) * (-g/L + (θ')^2)
     """
-    # TODO Add a method of forward-solving in terms of linear position on the arc, rather
-    # than angle. This is because the differential equation for the angle has numerical
-    # instability.
 
     def parametrization(self, theta: float) -> np.ndarray[float]:
         """Expresses the position (x(θ), y(θ)) of the pendulum bob as a function
@@ -470,6 +477,8 @@ class PendulumScene(m.Scene):
         self.pendulum_type = Pendulum
         self.run_time = 3.0
         self.num_steps = 100
+        self.l = 0.01
+        self.length = 4.0
         raise NotImplementedError
     
     def pendulum_kwargs(self):
@@ -480,7 +489,7 @@ class PendulumScene(m.Scene):
 
         # Integrate the differential equation to solve for reference points
         dt = self.run_time / self.num_steps
-        pendulum: Pendulum = self.pendulum_type(l=0.03, length=4.0)
+        pendulum: Pendulum = self.pendulum_type(l=self.l, length=self.length)
 
         if isinstance(pendulum, IsochronousPendulum):
             self.add(*pendulum.make_blocks())
@@ -568,8 +577,10 @@ class PendulumScene(m.Scene):
 class SimplePendulumScene(PendulumScene):
     def set_params(self):
         self.pendulum_type = SimplePendulum
-        self.run_time = 3.0
-        self.num_steps = 500
+        self.run_time = 10.0
+        self.num_steps = 200
+        self.l = 0.03
+        self.length = 4.0
     
     def pendulum_kwargs(self):
         initial_angles = np.linspace(0.1, 1.0, 5)
@@ -579,8 +590,10 @@ class SimplePendulumScene(PendulumScene):
 class IsochronousPendulumScene(PendulumScene):
     def set_params(self):
         self.pendulum_type = IsochronousPendulum
-        self.run_time = 3.0
-        self.num_steps = 100
+        self.run_time = 10.0
+        self.num_steps = 200
+        self.l = 0.03
+        self.length = 4.0
     
     def pendulum_kwargs(self):
         initial_angles = np.linspace(0.1, np.pi/2, 5)
