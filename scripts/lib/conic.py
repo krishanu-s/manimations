@@ -295,7 +295,7 @@ class CartesianConicEquation:
         # Case 2: If c_xx != 0, then the result is an ellipse or hyperbola
         else:
             # Translate x to eliminate the c_x term and thus center at (0, 0).
-            ax = cart_eq.c_x / (2 * cart_eq.c_x)
+            ax = cart_eq.c_x / (2 * cart_eq.c_xx)
             cart_eq.translate_x(ax)
 
             # Now the equation is Ax^2 + Cy^2 + F = 0, so retrieve the equation
