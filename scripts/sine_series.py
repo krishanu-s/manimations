@@ -15,89 +15,6 @@ Series for sine and cosine
 -
 """
 
-# TODO Animate "unwrapping"
-
-from math import factorial
-import numpy as np
-import manim as m
-
-CENTER = np.array([-1.5, -1.5, 0])
-
-def sin_cycle(n: int, x: float) -> float:
-    """A trigonometric function f which is 4-periodic in the first argument and
-    where f(0, x) = sin(x) and f(n+1, x) = f'(n, x)."""
-    if n % 2 == 0:
-        return np.sin(x) * (-1)**(n//2)
-    else:
-        return np.cos(x) * (-1)**(n//2)
-
-def truncated_cos(n: int, x: float) -> float:
-    """Degree n Taylor polynomial for cosine."""
-    return sum(((- x**2)**k) / factorial(2*k) for k in range(0, 1 + n//2))
-
-def truncated_sin(n: int, x: float) -> float:
-    """Degree n Taylor polynomial for sine."""
-    return sum(((- x**2)**k) * x / factorial(2*k + 1) for k in range(0, 1 + (n-1)//2))
-
-def parametrize_arc(n: int, theta: float, t) -> np.ndarray:
-    """Returns a parametrization A_n: [0, θ] -> R^2 of the n-th `unwrapping arc`.
-    The portion of the unit circle connecting (1, 0) to (cosθ, sinθ) is the 0-th arc,
-    and thereafter the k-th arc is defined by unwrapping the (k-1)-st arc."""
-    return np.array([
-        truncated_cos(n, t) * np.cos(theta - t) - truncated_sin(n, t) * np.sin(theta - t),
-        truncated_cos(n, t) * np.sin(theta - t) + truncated_sin(n, t) * np.cos(theta - t),
-        0
-    ])
-
-def backsolve_parametrize_arc(n: int, x: float, y: float) -> float:
-    """Given a point (x, y) that is known to be on the n-th unwrapping arc (where
-    the value of θ need not be known), returns a close approximation to the value t
-    such that A_n(t) = (x, y). This is done as follows:
-    - Let C = x^2 + y^2. Note that C = T_ncos(t)^2 + T_nsin(t)^2.
-    - Let f(t) be the polynomial T_ncos(t)^2 + T_ksin(t)^2. Then
-      - f(t) = 1 + At^{2(1+n//2)} + (higher terms) for some A, which is calculated.
-      - f'(t) = 2T_nsin(t)T_{n-1}cos(t) - 2T_kcos(t)T_{n-1}sin(t).
-    - Start with t = ((C-1)/A)^{1/2(1+n//2)} and then
-      apply Newton's method: t -> t - f(t)/f'(t)"""
-    # Norm squared of the given point
-    c = x**2 + y**2
-
-    # Polynomial
-    def f(z):
-        return truncated_cos(n, z)**2 + truncated_sin(n, z)**2
-    def f_prime(z):
-        return 2 * (truncated_sin(n, z) * truncated_cos(n-1, z) - truncated_cos(n, z) * truncated_sin(n-1, z))
-    
-    # Half the degree of the lowest nonconstant term in f(t)
-    d = 1 + n//2
-
-    # Coefficient of that term
-    if n%2 == 1:
-        a = ((-1) ** d) * (- 2) / factorial(2*d)
-    else:
-        a = ((-1) ** d) * (4*d - 2) / factorial(2*d)
-
-    # Initial guess for t
-    t = ((c-1)/a) ** (1/(2*d))
-
-    # Iterations of Newton's method
-    for _ in range(3):
-        t -= f(t)/f_prime(t)
-
-    return t
-
-def construct_homotopy(n: int, theta: float):
-    """Constructs a function (x, y, z, t) -> (x, y, z) which `unwraps' the n-th
-    arc, as follows:
-    - Backsolve for the value φ such that A_n(φ) = (x, y).
-    - Calculate A_n(φ, t)"""
-    def htpy(x, y, z, t):
-        phi = backsolve_parametrize_arc(n, x, y)
-        new_x = truncated_cos(n+1, t) * np.cos(theta - t) - truncated_sin(n+1, t) * np.sin(theta - t) + sin_cycle(n, theta - t) * (phi**(n+1))/factorial(n+1)
-        new_y = truncated_cos(n+1, t) * np.sin(theta - t) + truncated_sin(n+1, t) * np.cos(theta - t) + sin_cycle(n - 1, theta - t) * (phi**(n+1))/factorial(n+1)
-        return (new_x, new_y, z)
-    return htpy
-
 ### PARAMETRIZING THE UNWRAPPING ARCS
 # The arc along the unit circle defining the point is the 0-th arc.
 # It is parametrized by the function A_0(φ) = e^{i(θ-φ)} for φ in [0, θ].
@@ -133,6 +50,100 @@ def construct_homotopy(n: int, theta: float):
 # Next, we will have to figure out how to advance this point forward by time t. This is
 # the easy part, as we just use the defined equation for A_k(φ, t).
 
+from math import factorial
+import numpy as np
+import manim as m
+
+CENTER = np.array([0, 0, 0])
+
+# TODO Move this into a "trigonometry.py" file
+def sin_cycle(n: int, x: float) -> float:
+    """A trigonometric function f which is 4-periodic in the first argument and
+    where f(0, x) = sin(x) and f(n+1, x) = f'(n, x)."""
+    if n % 2 == 0:
+        return np.sin(x) * (-1)**(n//2)
+    else:
+        return np.cos(x) * (-1)**(n//2)
+
+# TODO Move this into a "trigonometry.py" file
+def truncated_cos(n: int, x: float) -> float:
+    """Degree n Taylor polynomial for cosine."""
+    return sum(((- x**2)**k) / factorial(2*k) for k in range(0, 1 + n//2))
+
+# TODO Move this into a "trigonometry.py" file
+def truncated_sin(n: int, x: float) -> float:
+    """Degree n Taylor polynomial for sine."""
+    return sum(((- x**2)**k) * x / factorial(2*k + 1) for k in range(0, 1 + (n-1)//2))
+
+def parametrize_arc(n: int, theta: float, t) -> tuple[float, float, float]:
+    """Returns a parametrization A_n: [0, θ] -> R^2 of the n-th `unwrapping arc`.
+    The portion of the unit circle connecting (1, 0) to (cosθ, sinθ) is the 0-th arc,
+    and thereafter the k-th arc is defined by unwrapping the (k-1)-st arc."""
+    return (
+        truncated_cos(n, t) * np.cos(theta - t) - truncated_sin(n, t) * np.sin(theta - t),
+        truncated_cos(n, t) * np.sin(theta - t) + truncated_sin(n, t) * np.cos(theta - t),
+        0
+        )
+
+# TODO Test this.
+def backsolve_parametrize_arc(n: int, x: float, y: float) -> float:
+    """Given a point (x, y) that is known to be on the n-th unwrapping arc (where
+    the value of θ need not be known), returns a close approximation to the value t
+    such that A_n(t) = (x, y). This is done as follows:
+    - Let C = x^2 + y^2. Note that C = T_ncos(t)^2 + T_nsin(t)^2.
+    - Let f(t) be the polynomial T_ncos(t)^2 + T_ksin(t)^2. Then
+      - f(t) = 1 + At^{2(1+n//2)} + (higher terms) for some A, which is calculated.
+      - f'(t) = 2T_nsin(t)T_{n-1}cos(t) - 2T_kcos(t)T_{n-1}sin(t).
+    - Start with t = ((C-1)/A)^{1/2(1+n//2)} and then
+      apply Newton's method: t -> t - f(t)/f'(t)"""
+    # Norm squared of the given point
+    c = x**2 + y**2
+
+    # Polynomial
+    def f(z):
+        return truncated_sin(n, z)**2 + truncated_cos(n, z)**2
+    def f_prime(z):
+        return 2 * (truncated_sin(n, z) * truncated_cos(n-1, z) - truncated_cos(n, z) * truncated_sin(n-1, z))
+    
+    # Half the degree of the lowest nonconstant term in f(t)
+    d = 1 + n//2
+
+    # Coefficient of that term
+    if n % 2 == 0:
+        a = ((-1) ** d) * (4*d - 2) / factorial(2*d)
+    else:
+        a = ((-1) ** d) * (- 2) / factorial(2*d)
+
+    # Initial guess for t
+    # print("a=", a)
+    t = ((c-1)/a) ** (1/(2*d))
+
+    # Iterations of Newton's method
+    for _ in range(1):
+        # print("deriv=", f_prime(t))
+        t -= (f(t) - c)/f_prime(t)
+
+    return t
+
+def construct_homotopy(n: int, theta: float):
+    """Constructs a function (x, y, z, t) -> (x, y, z) which `unwraps' the n-th
+    arc, as follows:
+    - Backsolve for the value φ such that A_n(φ) = (x, y).
+    - Calculate A_n(φ, t)"""
+    # TODO Fix this
+    def htpy(x, y, z, t):
+        t_scaled = t * theta
+        phi = backsolve_parametrize_arc(n, x, y)
+        # Casework based on whether t > phi
+        if t_scaled <= phi:
+            new_x = x
+            new_y = y
+        else:
+            new_x = truncated_cos(n+1, t_scaled) * np.cos(theta - t_scaled) - truncated_sin(n+1, t_scaled) * np.sin(theta - t_scaled) + sin_cycle(n, theta - t_scaled) * (phi**(n+1))/factorial(n+1)
+            new_y = truncated_cos(n+1, t_scaled) * np.sin(theta - t_scaled) + truncated_sin(n+1, t_scaled) * np.cos(theta - t_scaled) + sin_cycle(n - 1, theta - t_scaled) * (phi**(n+1))/factorial(n+1)
+        return (new_x, new_y, z)
+    return htpy
+
 class UnwrappingScene(m.Scene):
 
     def construct(self):
@@ -145,44 +156,121 @@ class UnwrappingScene(m.Scene):
         # Add point
         self.draw_point()
 
-        # Make arc
-        arc = m.Arc(
-            arc_center=CENTER,
-            radius=self.radius,
-            start_angle=0,
-            angle=self.theta,
+        # Trace out the first arc
+        n = 2
+        unwrapped_arc = m.ParametricFunction(
+            function=lambda t: self.shift_coords(parametrize_arc(n-1, self.theta, t)),
+            t_range=(0.01, self.theta - 0.01),
             stroke_color=m.RED,
-        )
-        arc_label = m.MathTex("\\theta", color=m.RED, font_size=30).move_to(
-            CENTER
-            + self.radius * 0.8 * np.array([np.cos(self.theta / 2), np.sin(self.theta / 2), 0])
-        )
-        self.play(m.FadeIn(arc, arc_label))
-        self.play(m.FadeOut(arc_label))
+            )
+        self.add(unwrapped_arc)
 
-        # Unwrap arc
-        self.play(m.Homotopy())
+        # Make a parameter which tracks time
+        # t = m.Dot(point=(0, 1, 0), radius=0.05)
+        # slider = m.MoveAlongPath(t, m.Line(start=(0, 1, 0), end=(self.theta, 1, 0)))
+        # time = m.DecimalNumber()
+        # timeline = m.ChangingDecimal(decimal_mob=time, number_update_func=lambda t: t * self.theta)
+        
+        
+        # Point which moves along the arc as time proceeds
+        # pt = m.VMobject()
+        # pt.add_updater(lambda mobj: mobj.move_to(self.shift_coords(parametrize_arc(n, self.theta, t.arc_center[0]))))
 
-        # # Sine and cosine
-        # sin_def = m.Line(start=self.shift_coords(np.array([np.cos(theta), 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0)
-        # cos_def = m.Line(start=self.shift_coords(np.array([0, np.sin(theta), 0])), end=self.shift_coords(self.point), stroke_width=1.0)
-        # self.add(sin_def, cos_def)
+        pt = m.Dot(point=self.shift_coords(self.point), radius=0.05)
+        traced_arc = m.ParametricFunction(
+            function=lambda t: self.shift_coords(parametrize_arc(n, self.theta, t)),
+            t_range=(0.01, self.theta - 0.01)
+            )
+        mvmt = m.MoveAlongPath(pt, traced_arc)
+        
+        # Traced arc which appears as time proceeds
+        # traced_arc = m.VMobject()
+        # traced_arc.add_updater(update_function=lambda mobj: mobj.become(
+        #     m.ParametricFunction(
+        #     function=lambda t: self.shift_coords(parametrize_arc(n, self.theta, t)),
+        #     t_range=(0, time.number)
+        #     )))
+        # self.add(pt)
+        # self.play(slider)
 
-        # Add convergents
-        for i in range(0, 5):
-            self.add_convergent(i)
-        for i in range(5, 9):
-            self.add_convergent(i, add_labels=False)
+
+
+        # # Arc which homotopes as time proceeds
+        # TODO Need to pre/post-shift by coordinates
+        htpy = construct_homotopy(n-1, self.theta)
+        def shifted_htpy(x, y, z, t):
+            x0, y0, z0 = self.unshift_coords((x, y, z))
+            x1, y1, z1 = htpy(x0, y0, z0, t)
+            return self.shift_coords((x1, y1, z1))
+        
+        # TODO Make these simultaneous.
+        homotopy = m.Homotopy(
+            homotopy=shifted_htpy,
+            mobject=unwrapped_arc)
+        self.play(mvmt, homotopy)
+        # # Trace which appears as time proceeds
+        # trace = m.VMobject().add_updater(lambda mobj: mobj.become(m.ParametricFunction(
+        #     function=lambda t : self.shift_coords(parametrize_arc(n, self.theta, t)),
+        #     t_range=(0, time)
+        #     )))
+        
+        # self.play(m.MoveAlongPath(pt, traced_arc))
+
+        # # Make arc
+        # arc = m.Arc(
+        #     arc_center=CENTER,
+        #     radius=self.radius,
+        #     start_angle=0,
+        #     angle=self.theta,
+        #     stroke_color=m.RED,
+        # )
+        # arc_label = m.MathTex("\\theta", color=m.RED, font_size=30).move_to(
+        #     CENTER
+        #     + self.radius * 0.8 * np.array([np.cos(self.theta / 2), np.sin(self.theta / 2), 0])
+        # )
+        # self.play(m.FadeIn(arc, arc_label))
+        # self.play(m.FadeOut(arc_label))
+
+        # # Unwrap arc
+        # self.play(m.Homotopy())
+
+        # # # Sine and cosine
+        # # sin_def = m.Line(start=self.shift_coords(np.array([np.cos(theta), 0, 0])), end=self.shift_coords(self.point), stroke_width=1.0)
+        # # cos_def = m.Line(start=self.shift_coords(np.array([0, np.sin(theta), 0])), end=self.shift_coords(self.point), stroke_width=1.0)
+        # # self.add(sin_def, cos_def)
+
+        # # Add convergents
+        # for i in range(0, 5):
+        #     self.add_convergent(i)
+        # for i in range(5, 9):
+        #     self.add_convergent(i, add_labels=False)
 
     def set_parameters(self):
         """Set parameters for the scene."""
         self.center = CENTER
-        self.radius = 2.5
+        self.radius = 1.0
         self.theta = 1.8
 
-    def shift_coords(self, pt: np.ndarray):
+    def shift_coords(self, pt: np.ndarray | tuple[float, float, float]):
         """Shifts coordinates to make them appropriate for drawing in the scene"""
-        return self.center + self.radius * pt
+        if isinstance(pt, np.ndarray):
+            return self.center + self.radius * pt
+        else:
+            return (
+                self.center[0] + self.radius * pt[0],
+                self.center[1] + self.radius * pt[1],
+                self.center[2] + self.radius * pt[2]
+                )
+        
+    def unshift_coords(self, pt: np.ndarray | tuple[float, float, float]):
+        if isinstance(pt, np.ndarray):
+            return (1/self.radius) * (pt - self.center)
+        else:
+            return (
+                (pt[0] - self.center[0])/self.radius,
+                (pt[1] - self.center[1])/self.radius,
+                (pt[2] - self.center[2])/self.radius,
+                )
 
     def draw_fixed_elements(self):
         """Draw the axes and unit circle."""
@@ -348,8 +436,33 @@ class UnwrappingScene(m.Scene):
 
 # Tests
 if __name__ == "__main__":
+    # Tests of arc parametrization
     for theta in np.linspace(0.1, 2.0, 20):
         assert parametrize_arc(1, theta, 0)[0] == np.cos(theta)
         assert parametrize_arc(1, theta, 0)[1] == np.sin(theta)
         assert parametrize_arc(1, theta, theta)[0] == 1
         assert parametrize_arc(1, theta, theta)[1] == theta
+    
+    # Tests of backsolving
+    for theta in np.linspace(0.1, 2.0, 20):
+        for n in range(1, 5):
+            x, y, _ = parametrize_arc(n, theta, 0.9)
+            phi = backsolve_parametrize_arc(n, x, y)
+            assert abs(0.9 - phi) < 1e-2
+
+    # Tests of homotopy unwrapping the n-th arc
+    theta = 1.0
+    for n in range(1, 5):
+        # print("n=", n)
+        htpy = construct_homotopy(n, theta)
+        for phi in np.linspace(0.01, 0.99, 20):
+            diff = (-1) ** (n//2) * (phi**(n+1)) * (theta**(n+1))/factorial(n+1)
+            x, y, _ = parametrize_arc(n, theta, phi)
+            new_x, new_y, _ = htpy(x, y, 0, 1.0)
+            # print("phi=", phi)
+            if n % 2 == 0:
+                assert abs(new_x - (truncated_cos(n+1, theta))) < 1e-3
+                assert abs(new_y - (truncated_sin(n+1, theta) - diff)) < 1e-3
+            else:
+                assert abs(new_x - (truncated_cos(n+1, theta) + diff)) < 1e-3
+                assert abs(new_y - (truncated_sin(n+1, theta))) < 1e-3
