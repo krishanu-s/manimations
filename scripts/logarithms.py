@@ -40,67 +40,69 @@ import numpy as np
 import manim as m
 
 class NaturalLogarithm(m.Scene):
-    def construct(self):
+    def set_params(self):
+        self.xmin, self.xmax = -1.0, 6.0
+        self.ymin, self.ymax = -1.0, 6.0
+        self.xlength, self.ylength = 8.0, 8.0
+
+    def make_ax(self):
         # Make the axes
-        xmin, xmax = -1.0, 6.0
-        ymin, ymax = -1.0, 6.0
-        xlength, ylength = 8.0, 8.0
-        ax = m.Axes(
-            x_range=(xmin, xmax),
-            y_range=(ymin, ymax),
-            x_length=xlength,
-            y_length=ylength,
+        self.ax = m.Axes(
+            x_range=(self.xmin, self.xmax),
+            y_range=(self.ymin, self.ymax),
+            x_length=self.xlength,
+            y_length=self.ylength,
             ).set_z_index(10)
-        
-        self.add(ax)
 
         # Make the curve
-        curve = m.ParametricFunction(
-            lambda t: ax.coords_to_point(1/math.sqrt(math.tan(t)), math.sqrt(math.tan(t)), 0),
+        self.curve = m.ParametricFunction(
+            lambda t: self.ax.coords_to_point(1/math.sqrt(math.tan(t)), math.sqrt(math.tan(t)), 0),
             t_range=(0.02, np.pi/2 - 0.02),
             stroke_width=2.5
             ).set_z_index(10)
-        self.add(curve)
+        
+        # Define parametrization functions
+        self.param_2 = lambda s, t: self.ax.coords_to_point(t, s/t, 0)
+        self.param = lambda t: self.param_2(1, t)
 
-        param_2 = lambda s, t: ax.coords_to_point(t, s/t, 0)
-        param = lambda t: ax.coords_to_point(t, 1/t, 0)
+    def construct(self):
+        self.set_params()
+        self.make_ax()
+
+        # Add the axis and curve
+        self.add(self.ax, self.curve)
+
+        # Parameters
+        a = 2.5
+
+        # Animation value trackers
+        left = m.ValueTracker(1) # Left x-value
+        ratio = m.ValueTracker(a) # Ratio between right and left x-values
+        prod = m.ValueTracker(1) # Product of x and y coordinates on the curve
 
         # Add the area defining ln(a)
-        a = 2.5
-        b = 1.6
-        
-        left_point = m.Dot(param(1), radius=0.06).set_z_index(10)
-        right_point = m.Dot(param(a), radius=0.06).set_z_index(10)
-        g0 = ax.plot(lambda t: 1/t, x_range=[0.05, 10], 
+
+        left_point = m.Dot(self.param(1), radius=0.06).set_z_index(10)
+        right_point = m.Dot(self.param(a), radius=0.06).set_z_index(10)
+        g0 = self.ax.plot(lambda t: 1/t, x_range=[0.05, 10], 
             stroke_width=1.0, stroke_opacity=0.5)
-        area = ax.get_area(g0, [1, a], color=m.BLUE, opacity=0.5)
+        area = self.ax.get_area(g0, [1, a], color=m.BLUE, opacity=0.5)
         value = m.DecimalNumber(math.log(a))
 
         self.add(left_point, right_point, area, value, g0)
 
-        # Animation value trackers
-
-        # Left x-value
-        left = m.ValueTracker(1)
-
-        # Ratio between right x-value and left x-value
-        ratio = m.ValueTracker(a)
-
-        # Product of x and y coordinate on the integrated curve
-        prod = m.ValueTracker(1)
-
         # Add updaters
         left_point.add_updater(lambda z: z.move_to(
-            param_2(prod.get_value(), left.get_value())
+            self.param_2(prod.get_value(), left.get_value())
             ))
         right_point.add_updater(lambda z: z.move_to(
-            param_2(prod.get_value(), left.get_value() * ratio.get_value())
+            self.param_2(prod.get_value(), left.get_value() * ratio.get_value())
             ))
         g0.add_updater(lambda z: z.become(
-            ax.plot(lambda t: prod.get_value()/t, x_range=[0.05, 10], stroke_width=1.0, stroke_opacity=0.5)
+            self.ax.plot(lambda t: prod.get_value()/t, x_range=[0.05, 10], stroke_width=1.0, stroke_opacity=0.5)
         ))
         area.add_updater(lambda z: z.become(
-            ax.get_area(
+            self.ax.get_area(
                 g0, 
                 [left.get_value(), left.get_value() * ratio.get_value()], color=m.BLUE, opacity=0.5
                 )
@@ -111,9 +113,10 @@ class NaturalLogarithm(m.Scene):
         self.play(ratio.animate.set_value(2*a), run_time=1.5)
         self.play(ratio.animate.set_value(a), run_time=1.5)
 
-        # Proof that ln(ab) = ln(a) + ln(b)
-        self.play(prod.animate.set_value(b), left.animate.set_value(b), run_time=1.5)
-        self.play(prod.animate.set_value(1), run_time=1.5)
+        # Animate proof that ln(ab) = ln(a) + ln(b)
+        b = 1.6
+        self.play(prod.animate.set_value(b), left.animate.set_value(b), run_time=1.5, rate_func=m.linear)
+        self.play(prod.animate.set_value(1), run_time=1.5, rate_func=m.linear)
 
 
 
