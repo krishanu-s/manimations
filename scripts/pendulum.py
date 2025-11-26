@@ -44,11 +44,7 @@ the edges and its period thus becomes independent of the initial angle. "Isochro
 (Now go into mathematics to show that this is a cycloid.)
 """
 
-from lib import (
-    ParametrizedHomotopy,
-    RungeKuttaAutonomous,
-    RungeKutta2
-    )
+from lib import ParametrizedHomotopy, RungeKuttaAutonomous
 
 
 # TODO Move these into their own file called "oscillators.py" and standardize the interfaces.
@@ -295,10 +291,10 @@ class IsochronousPendulum(Pendulum):
         """Differential equation for the angular position θ, expressed as θ'' = f(θ, θ')"""
         return np.tan(val.x) * (- 1/self.l + val.y ** 2)
     
-    def step(self, dt: float):
+    def step(self, dt: float, num_iterations: float = 10):
         if self.solver.val.x > np.pi/2 - dt:
             raise InterruptedError("Not advancing simulation for numerical stability reasons.")
-        super().step(dt)
+        super().step(dt, num_iterations)
     
     def wrapped_point(self, a: float) -> np.ndarray[float]:
         """Defines the position of the point on the pendulum string at ratio a when it
@@ -384,19 +380,20 @@ class PendulumScene(m.Scene):
         if isinstance(pendulum, IsochronousPendulum):
             self.add(*pendulum.make_blocks())
 
+        def interpolate_vals(vals: list[float], t: float):
+            """Given an input t, and a sequence of function output values
+            f(0), f(dt), f(2*dt), ..., linearly interpolates between the given values
+            to estimate f(t)."""
+            if t > (len(vals) - 1) * dt:
+                return vals[-1]
+            else:
+                k = int(t // dt)
+                alpha = t / dt - k
+                return (1 - alpha) * vals[k] + alpha * vals[k + 1]
         
         def make_homotopy(theta0, omega0, bob_color=m.BLUE) -> m.Homotopy:
             vals = pendulum.solve(theta0, omega0, dt, self.num_steps)
-
-            def angular_position(t: float) -> float:
-                """Given a time t, finds the best-possible approximation to the angular
-                position at time t by interpolating between the two nearest points."""
-                if t == self.run_time:
-                    return vals[-1]
-                else:
-                    k = int(t // dt)
-                    alpha = t / dt - k
-                    return (1 - alpha) * vals[k] + alpha * vals[k + 1]
+            angular_position = lambda t: interpolate_vals(vals, t)
 
             # Add the pendulum string to the scene.
             curve = m.ParametricFunction(
@@ -417,22 +414,9 @@ class PendulumScene(m.Scene):
             self.add(bob)
 
             # Define the homotopy describing the swing of the pendulum
-            def htpy(alpha, t) -> np.ndarray[float]:
-                theta = angular_position(t * self.run_time)
-                return pendulum.param_string(alpha, theta)
-            homotopy = ParametrizedHomotopy(htpy, curve, run_time=self.run_time, rate_func=m.linear)
-
-            # def htpy(x, y, z, t) -> np.ndarray[float]:
-            #     # If the input point is not on the curve, then it's a handle
-            #     # of a Bezier curve and is being re-computed anyways.
-            #     try:
-            #         a = curve.proportion_from_point(np.array([x, y, z]))
-            #         theta = angular_position(t)
-            #         return pendulum.draw_string(a, theta)
-            #     except:
-            #         return np.array([0., 0., 0.])
-            
-            # homotopy = m.Homotopy(htpy, curve, run_time=self.run_time, rate_func=m.linear)
+            homotopy = ParametrizedHomotopy(
+                homotopy=lambda alpha, t: pendulum.param_string(alpha, angular_position(t * self.run_time)),
+                mobject=curve, run_time=self.run_time, rate_func=m.linear)
             return homotopy
         
         homotopies = [
@@ -443,13 +427,13 @@ class PendulumScene(m.Scene):
 class SimplePendulumScene(PendulumScene):
     def set_params(self):
         self.pendulum_type = SimplePendulum
-        self.run_time = 2.0
+        self.run_time = 10.0
         self.num_steps = 200
-        self.l = 0.03
+        self.l = 0.1
         self.length = 4.0
     
     def pendulum_kwargs(self):
-        initial_angles = np.linspace(0.1, 1.0, 5)
+        initial_angles = np.linspace(0.1, 0.5, 5)
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
 
@@ -458,10 +442,11 @@ class IsochronousPendulumScene(PendulumScene):
         self.pendulum_type = IsochronousPendulum
         self.run_time = 10.0
         self.num_steps = 200
-        self.l = 0.03
+        self.l = 0.1
         self.length = 4.0
     
     def pendulum_kwargs(self):
-        initial_angles = np.linspace(0.1, np.pi/2, 5)
+        initial_angles = np.linspace(0.1, np.pi/4, 5)
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
+
