@@ -35,8 +35,87 @@ How would you calculate the logarithm?
 - And we already calculated the area under each of these.
 - So a - a^2/2 + a^3/3 - ..., so long as a <= 1."""
 
+import math
 import numpy as np
 import manim as m
+
+class NaturalLogarithm(m.Scene):
+    def construct(self):
+        # Make the axes
+        xmin, xmax = -1.0, 6.0
+        ymin, ymax = -1.0, 6.0
+        xlength, ylength = 8.0, 8.0
+        ax = m.Axes(
+            x_range=(xmin, xmax),
+            y_range=(ymin, ymax),
+            x_length=xlength,
+            y_length=ylength,
+            ).set_z_index(10)
+        
+        self.add(ax)
+
+        # Make the curve
+        curve = m.ParametricFunction(
+            lambda t: ax.coords_to_point(1/math.sqrt(math.tan(t)), math.sqrt(math.tan(t)), 0),
+            t_range=(0.02, np.pi/2 - 0.02),
+            stroke_width=2.5
+            ).set_z_index(10)
+        self.add(curve)
+
+        param_2 = lambda s, t: ax.coords_to_point(t, s/t, 0)
+        param = lambda t: ax.coords_to_point(t, 1/t, 0)
+
+        # Add the area defining ln(a)
+        a = 2.5
+        b = 1.6
+        
+        left_point = m.Dot(param(1), radius=0.06).set_z_index(10)
+        right_point = m.Dot(param(a), radius=0.06).set_z_index(10)
+        g0 = ax.plot(lambda t: 1/t, x_range=[0.05, 10], 
+            stroke_width=1.0, stroke_opacity=0.5)
+        area = ax.get_area(g0, [1, a], color=m.BLUE, opacity=0.5)
+        value = m.DecimalNumber(math.log(a))
+
+        self.add(left_point, right_point, area, value, g0)
+
+        # Animation value trackers
+
+        # Left x-value
+        left = m.ValueTracker(1)
+
+        # Ratio between right x-value and left x-value
+        ratio = m.ValueTracker(a)
+
+        # Product of x and y coordinate on the integrated curve
+        prod = m.ValueTracker(1)
+
+        # Add updaters
+        left_point.add_updater(lambda z: z.move_to(
+            param_2(prod.get_value(), left.get_value())
+            ))
+        right_point.add_updater(lambda z: z.move_to(
+            param_2(prod.get_value(), left.get_value() * ratio.get_value())
+            ))
+        g0.add_updater(lambda z: z.become(
+            ax.plot(lambda t: prod.get_value()/t, x_range=[0.05, 10], stroke_width=1.0, stroke_opacity=0.5)
+        ))
+        area.add_updater(lambda z: z.become(
+            ax.get_area(
+                g0, 
+                [left.get_value(), left.get_value() * ratio.get_value()], color=m.BLUE, opacity=0.5
+                )
+        ))
+        value.add_updater(lambda d: d.set_value(prod.get_value() * math.log(ratio.get_value())))
+
+        # Animate ln(a) becoming ln(2a)
+        self.play(ratio.animate.set_value(2*a), run_time=1.5)
+        self.play(ratio.animate.set_value(a), run_time=1.5)
+
+        # Proof that ln(ab) = ln(a) + ln(b)
+        self.play(prod.animate.set_value(b), left.animate.set_value(b), run_time=1.5)
+        self.play(prod.animate.set_value(1), run_time=1.5)
+
+
 
 class QuadratureScene(m.Scene):
     """Scene which demonstrates geometrically that ∫_0^1 x^n dx = 1/(n+1)."""
