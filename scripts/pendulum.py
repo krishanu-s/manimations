@@ -44,122 +44,12 @@ the edges and its period thus becomes independent of the initial angle. "Isochro
 (Now go into mathematics to show that this is a cycloid.)
 """
 
-# Given a function H: [0, 1] x [0, T] -> R^2, animate it as a curve homotopy.
-class ParametrizedMobject(m.Mobject):
-    """Mobject whose points are indexed by values in [0, 1]."""
-    def apply_function(self, func):
-        # Apply the function
-        pass
+from lib import (
+    ParametrizedHomotopy,
+    RungeKuttaAutonomous,
+    RungeKutta2
+    )
 
-class ParametrizedHomotopy(m.Animation):
-    """
-    A function H: [0, 1] x [0, T] -> R^2.
-
-    At the time this object is created, an entire family of 
-
-    When the second coordinate is restricted to 0, this parametrizes a curve, i.e.
-    a m.ParametricFunction object. The m.ParametricFunction object has "init_points"
-    which then should be moved according to the homotopy."""
-    # TODO
-    # First, modify the computation of bezier handles in
-    # 
-    # `utils.bezier.py:get_smooth_open_cubic_bezier_handle_points()'
-    #
-    # to be done for an entire *family* of curves with a correspondence between
-    # their anchor points.
-    #
-    # A family of curves (defined by their anchor points) is to be generated
-    # at the time the ParametrizedHomotopy object is created, and then all
-    # of the handles are computed in a vectorized fashion. These anchors and
-    # handles are stored as an attribute of the homotopy. Two possible ways to go about this:
-    # 
-    # - Call up manim._config.config['frame_rate'] to determine the *exact* timestamps
-    #   at which anchors and handles will be needed for the rendering at hand.
-    # - Generate a fine enough time-mesh of N curves (i.e. (N, N_pts) anchors), then use these
-    #   to calculate the corresponding (N, 2 * N_pts) handles in a vectorized fashion.
-    #   Then equip the function "interpolate_submobject(alpha)" and "function_at_time_t"
-    #   to linearly interpolate between the nearest anchors/handles, merely calling on the
-    #   data that's already stored within the ParametrizedHomotopy.
-    # 
-    #   If you want to go one step further, the time-evolution itself can be smoothed
-    #   in a cubic-bezier way, though this is probably unnecessary.
-    def __init__(
-        self,
-        homotopy: Callable[[float, float], tuple[float, float, float]],
-        mobject: ParametrizedMobject,
-        run_time: float = 3,
-        apply_function_kwargs: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> None:
-        self.homotopy = homotopy
-        self.apply_function_kwargs = (
-            apply_function_kwargs if apply_function_kwargs is not None else {}
-        )
-        super().__init__(mobject, run_time=run_time, **kwargs)
-
-    def function_at_time_t(self, t: float) -> tuple[float, float, float]:
-        return lambda p: self.homotopy(*p, t)
-
-    def interpolate_submobject(
-        self,
-        submobject: ParametrizedMobject,
-        starting_submobject: ParametrizedMobject,
-        alpha: float,
-    ) -> None:
-        submobject.points = starting_submobject.points
-        # For this type of submobject, the points are stored as floats in [0, 1]
-        submobject.apply_function(
-            self.function_at_time_t(alpha), **self.apply_function_kwargs
-        )
-
-# TODO Move these into their own file called "diffeq.py" and standardize the interfaces.
-class RungeKutta2:
-    """Method for forward-stepping a differential equation of the form (d/dt)^2(x) = f(t, x)"""
-    def __init__(self, t: float, val: Point2D, f: Callable[[float, float], float]):
-        self.t = t
-        self.val = val
-        self.f = f
-
-    def step(self, dt: float):
-        """Step forward in time by dt"""
-        k1 = Point2D(self.val.y, self.f(self.t, self.val.x))
-        k2 = Point2D(
-            self.val.y + k1.x * dt / 2,
-            self.f(self.t + dt / 2, self.val.x + k1.x * dt/2)
-        )
-        k3 = Point2D(
-            self.val.y + k2.x * dt / 2,
-            self.f(self.t + dt / 2, self.val.x + k2.x * dt/2)
-        )
-        k4 = Point2D(
-            self.val.y + k3.x * dt,
-            self.f(self.t + dt, self.val.x + k3.x * dt)
-        )
-        self.t += dt
-        self.val.translate_x((k1.x + 2 * k2.x + 2 * k3.x + k4.x) * dt/6)
-        self.val.translate_y((k1.y + 2 * k2.y + 2 * k3.y + k4.y) * dt/6)
-
-# TODO Vectorize this method.
-class RungeKuttaAutonomous:
-    """Method for forward-stepping a differential equation of the form x''(t) = f(x(t), x'(t))."""
-    def __init__(self, t0: float,  val: Point2D,  f: Callable[[Point2D], float]
-        ):
-        self.t = t0
-        self.val = val
-        self.f = f
-
-    def step(self, dt: float):
-        """Step forward in time by dt"""
-        k1 = Point2D(self.val.y, self.f(self.val))
-        p1 = self.val + k1 * (dt / 2)
-        k2 = Point2D(p1.y,self.f(p1))
-        p2 = self.val + k2 * (dt / 2)
-        k3 = Point2D(p2.y, self.f(p2))
-        p3 = self.val + k3 * dt
-        k4 = Point2D(p3.y, self.f(p3))
-
-        self.t += dt
-        self.val += (k1 + k2 * 2 + k3 * 2 + k4) * (dt/6)
 
 # TODO Move these into their own file called "oscillators.py" and standardize the interfaces.
 class Pendulum:
@@ -190,7 +80,7 @@ class Pendulum:
             return [sol(k * dt) for k in range(0, num_steps + 1)]
         except:
             self.set_initial_conditions(theta0, omega0)
-            vals = [self.solver.val.to_array()]
+            vals = [self.solver.val.to_array()[0]]
             for _ in range(num_steps):
                 self.step(dt, 10)
                 vals.append(self.solver.val.to_array()[0])
@@ -508,40 +398,11 @@ class PendulumScene(m.Scene):
                     alpha = t / dt - k
                     return (1 - alpha) * vals[k] + alpha * vals[k + 1]
 
-
             # Add the pendulum string to the scene.
             curve = m.ParametricFunction(
                 function=lambda a: pendulum.param_string(a, theta0),
                 t_range=(0, 1, 0.1),
                 stroke_width = 1.5,
-                # stroke_color = [1., 1., 1.],
-                # TODO: This is not efficient time-wise. If the rendering time
-                # becomes cumbersome, this could be fixed by modifying the computation
-                # of bezier handles in
-                # 
-                # `utils.bezier.py:get_smooth_closed_cubic_bezier_handle_points()'
-                #
-                # to be done for an entire *family* of curves with a correspondence between
-                # their anchor points. This calculation will have to be bundled into
-                # a custom m.Animation-type class we define, called e.g. ParametrizedHomotopy.
-                # 
-                # The family of curves (defined by their anchor points) is generated
-                # at the time the ParametrizedHomotopy object is created,
-                # and then all of the handles are computed in a vectorized fashion. These
-                # anchors and handles are stored as an attribute of the homotopy. Two possible ways:
-                # - Call up manim._config.config['frame_rate'] to determine the exact timestamps
-                #   at which anchors and handles will be needed for the animation at hand.
-                # - Generate a fine enough time-mesh for the anchors, then use this to calculate
-                #   all of the handles in a vectorized fashion. The function "interpolate_submobject(alpha)"
-                # 
-                # This attribute is then directly used in the "interpolate_submobject" method.
-                #
-                # A third (perhaps most elegant) possible way: just as the coordinates of the anchor points
-                # P_0(t), P_1(t), ... are functions of t, the coordinates of the handles
-                # B_1(t), B_2(t), B_3(t), B_4(t), ... are linear combinations of the
-                # anchor point functions and can be stored. This is a direct operation on
-                # the homotopy function, and can be a subroutine of m.ParametrizedHomotopy.
-                make_smooth_after_applying_functions=True
             )
             self.add(curve)
 
@@ -556,17 +417,22 @@ class PendulumScene(m.Scene):
             self.add(bob)
 
             # Define the homotopy describing the swing of the pendulum
-            def htpy(x, y, z, t) -> np.ndarray[float]:
-                # If the input point is not on the curve, then it's a handle
-                # of a Bezier curve and is being re-computed anyways.
-                try:
-                    a = curve.proportion_from_point(np.array([x, y, z]))
-                    theta = angular_position(t)
-                    return pendulum.param_string(a, theta)
-                except:
-                    return np.array([0., 0., 0.])
+            def htpy(alpha, t) -> np.ndarray[float]:
+                theta = angular_position(t * self.run_time)
+                return pendulum.param_string(alpha, theta)
+            homotopy = ParametrizedHomotopy(htpy, curve, run_time=self.run_time, rate_func=m.linear)
+
+            # def htpy(x, y, z, t) -> np.ndarray[float]:
+            #     # If the input point is not on the curve, then it's a handle
+            #     # of a Bezier curve and is being re-computed anyways.
+            #     try:
+            #         a = curve.proportion_from_point(np.array([x, y, z]))
+            #         theta = angular_position(t)
+            #         return pendulum.draw_string(a, theta)
+            #     except:
+            #         return np.array([0., 0., 0.])
             
-            homotopy = m.Homotopy(htpy, curve, run_time=self.run_time, rate_func=m.linear)
+            # homotopy = m.Homotopy(htpy, curve, run_time=self.run_time, rate_func=m.linear)
             return homotopy
         
         homotopies = [
