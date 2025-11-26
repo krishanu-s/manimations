@@ -3,6 +3,7 @@ This is intended as an addition to the manim library.
 """
 
 from typing import Callable, Any
+from typing_extensions import Self
 import numpy as np
 import manim as m
 
@@ -105,6 +106,16 @@ class SmoothOpenPathBezierHandleCalculator:
 # Given a function H: [0, 1] x [0, T] -> R^2, animate it as a curve homotopy.
 class ParametrizedMobject(m.ParametricFunction):
     """VMobject whose points are indexed by values in [0, 1]."""
+    def apply_function(self) -> Self:
+        factor = self.pre_function_handle_to_anchor_scale_factor
+        self.scale_handle_to_anchor_distances(factor)
+        # Instead of applying the function to the points, we should
+        # apply the homotopy
+        super().apply_function(function)
+        self.scale_handle_to_anchor_distances(1.0 / factor)
+        if self.make_smooth_after_applying_functions:
+            self.make_smooth()
+        return self
 
 class ParametrizedHomotopy(m.Animation):
     """
@@ -131,8 +142,8 @@ class ParametrizedHomotopy(m.Animation):
         n_steps = len(mobj.points) // nppcc
         self.calc = SmoothOpenPathBezierHandleCalculator(n_steps)
     
-    def _interpolate_mobject(self, mobject: ParametrizedMobject, t: float) -> ParametrizedMobject:
-        """Homotopes the mobject forward to time t.
+    def _interpolate_mobject_points(self, t: float) -> np.ndarray:
+        """Homotopes the points forward to time t.
         We assume that the mobject's points form a single path consisting of n intervals,
         where each interval is a Bezier curve."""
         n = self.calc.n
@@ -146,8 +157,7 @@ class ParametrizedHomotopy(m.Animation):
         points[1::4] = handles[::2]
         points[2::4] = handles[1::2]
         points[3::4] = anchors[1:]
-        mobject.points = points
-        return mobject
+        return points
 
     def __init__(
         self,
@@ -175,7 +185,8 @@ class ParametrizedHomotopy(m.Animation):
         alpha: float,
     ) -> None:
         submobject.points = starting_submobject.points
-        submobject = self._interpolate_mobject(submobject, alpha)
+        interpolated_points = self._interpolate_mobject_points(alpha)
+        submobject.points = interpolated_points
 
 
 class TestScene(m.Scene):
