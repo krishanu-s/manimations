@@ -88,6 +88,7 @@ class NaturalLogarithm(m.Scene):
             stroke_width=1.0, stroke_opacity=0.5)
         area = self.ax.get_area(g0, [1, a], color=m.BLUE, opacity=0.5)
         value = m.DecimalNumber(math.log(a))
+        self.ax.plo
 
         self.add(left_point, right_point, area, value, g0)
 
@@ -115,8 +116,8 @@ class NaturalLogarithm(m.Scene):
 
         # Animate proof that ln(ab) = ln(a) + ln(b)
         b = 1.6
-        self.play(prod.animate.set_value(b), left.animate.set_value(b), run_time=1.5, rate_func=m.linear)
-        self.play(prod.animate.set_value(1), run_time=1.5, rate_func=m.linear)
+        self.play(prod.animate.set_value(b), left.animate.set_value(b), run_time=1.5)
+        self.play(prod.animate.set_value(1), run_time=1.5)
 
 
 
