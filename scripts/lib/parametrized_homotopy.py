@@ -84,6 +84,95 @@ class SmoothOpenPathBezierHandleCalculator:
         handles[1::2] = H2
         return handles
 
+class ParametrizedHomotopy(m.Animation):
+    """
+    A function H: [0, L] x [0, 1] -> R^2.
+
+    At the time this object is created, the input curve which is being homotoped
+    already has a known number of anchors, P_0, P_1, ..., P_N with
+    
+    P_i(t) = H(L * i / N, t)
+
+    Hence, the Bezier handle functions can themselves be defined, each one as a
+    linear functional on these N+1 functions. Each Bezier handle is thus stored
+    as an array of shape (N+1,) with sum of entries equal to 1.
+
+    This is done by following the computation of bezier handles in 
+    `utils.bezier.py:get_smooth_open_cubic_bezier_handle_points()'
+    i.e. use Thomas's algorithm to fully invert the matrix.
+    """
+    def _make_calc(self, mobj: m.ParametricFunction):
+        """Make the Bezier Handle calculator associated to this object. We assume
+        the mobject's points form a single path consisting of n intervals,
+        where each interval is a Bezier curve."""
+        nppcc = mobj.n_points_per_cubic_curve
+        n_steps = len(mobj.points) // nppcc
+        self.calc = SmoothOpenPathBezierHandleCalculator(n_steps)
+    
+    def _interpolate_mobject_points(self, t: float, mobject: m.ParametricFunction) -> np.ndarray:
+        """Homotopes the points forward to time t.
+        We assume that the mobject's points form a single path consisting of n intervals,
+        where each interval is a Bezier curve."""
+        n = self.calc.n
+        # TODO See if we can make this creation of anchors a bit more general and controlled
+        # by the mobject instead.
+        anchors = np.stack(
+            [self.homotopy((mobject.t_max - mobject.t_min) * i / n, t) for i in range(n+1)],
+            axis=0
+            )
+        handles = self.calc.get_bezier_handles(anchors)
+        points = np.empty(shape=(4 * n, 3))
+        points[::4] = anchors[:-1]
+        points[1::4] = handles[::2]
+        points[2::4] = handles[1::2]
+        points[3::4] = anchors[1:]
+        return points
+
+    def __init__(
+        self,
+        # First coordinate is parametric function variable, second is time evolution
+        homotopy: Callable[[float, float], np.ndarray],
+        mobject: m.ParametricFunction,
+        run_time: float = 3,
+        apply_function_kwargs: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
+        self.homotopy = homotopy
+        self.mobject = mobject
+        self._make_calc(mobject)
+        self.apply_function_kwargs = (
+            apply_function_kwargs if apply_function_kwargs is not None else {}
+        )
+        super().__init__(mobject, run_time=run_time, **kwargs)
+
+    def function_at_time_t(self, t: float) -> tuple[float, float, float]:
+        return lambda p: self.homotopy(*p, t)
+
+    def interpolate_submobject(
+        self,
+        submobject: m.ParametricFunction,
+        starting_submobject: m.ParametricFunction,
+        alpha: float,
+    ) -> None:
+        submobject.points = starting_submobject.points
+        interpolated_points = self._interpolate_mobject_points(alpha, submobject)
+        submobject.points = interpolated_points
+
+
+# class TestScene(m.Scene):
+#     def construct(self):
+
+#         def circle(theta: float):
+#             return np.array([np.cos(theta), np.sin(theta), 0])
+
+#         curve = m.ParametricFunction(circle, (0, 1, 0.05))
+#         def htpy(theta: float, t: float):
+#             return np.array([(1+t) * np.cos(theta), (1+t) * np.sin(theta), 0])
+        
+#         homotopy = ParametrizedHomotopy(htpy, curve, run_time=1.0)
+#         self.add(curve)
+#         self.play(homotopy)
+
 # if __name__ == "__main__":
 #     # Test Bezier handle calculator
 #     n = 100
@@ -102,121 +191,3 @@ class SmoothOpenPathBezierHandleCalculator:
 #     plt.xlim(0, 1)
 #     plt.ylim(0, 1)
 #     plt.show()
-
-# Given a function H: [0, 1] x [0, T] -> R^2, animate it as a curve homotopy.
-class ParametrizedMobject(m.ParametricFunction):
-    """VMobject whose points are indexed by values in [0, 1]."""
-    def apply_function(self) -> Self:
-        factor = self.pre_function_handle_to_anchor_scale_factor
-        self.scale_handle_to_anchor_distances(factor)
-        # Instead of applying the function to the points, we should
-        # apply the homotopy
-        super().apply_function(function)
-        self.scale_handle_to_anchor_distances(1.0 / factor)
-        if self.make_smooth_after_applying_functions:
-            self.make_smooth()
-        return self
-
-class ParametrizedHomotopy(m.Animation):
-    """
-    A function H: [0, 1] x [0, T] -> R^2.
-
-    At the time this object is created, the input curve which is being homotoped
-    already has a known number of anchors, P_0, P_1, ..., P_N with
-    
-    P_i(t) = H(i / N, t)
-
-    Hence, the Bezier handle functions can themselves be defined, each one as a
-    linear functional on these N+1 functions. Each Bezier handle is thus stored
-    as an array of shape (N+1,) with sum of entries equal to 1.
-
-    This is done by following the computation of bezier handles in 
-    `utils.bezier.py:get_smooth_open_cubic_bezier_handle_points()'
-    i.e. use Thomas's algorithm to fully invert the matrix.
-    """
-    def _make_calc(self, mobj: ParametrizedMobject):
-        """Make the Bezier Handle calculator associated to this object. We assume
-        the mobject's points form a single path consisting of n intervals,
-        where each interval is a Bezier curve."""
-        nppcc = mobj.n_points_per_cubic_curve
-        n_steps = len(mobj.points) // nppcc
-        self.calc = SmoothOpenPathBezierHandleCalculator(n_steps)
-    
-    def _interpolate_mobject_points(self, t: float) -> np.ndarray:
-        """Homotopes the points forward to time t.
-        We assume that the mobject's points form a single path consisting of n intervals,
-        where each interval is a Bezier curve."""
-        n = self.calc.n
-        anchors = np.stack(
-            [self.homotopy(i / n, t) for i in range(n+1)],
-            axis=0
-            )
-        handles = self.calc.get_bezier_handles(anchors)
-        points = np.empty(shape=(4 * n, 3))
-        points[::4] = anchors[:-1]
-        points[1::4] = handles[::2]
-        points[2::4] = handles[1::2]
-        points[3::4] = anchors[1:]
-        return points
-
-    def __init__(
-        self,
-        homotopy: Callable[[float, float], np.ndarray],
-        mobject: ParametrizedMobject,
-        run_time: float = 3,
-        apply_function_kwargs: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> None:
-        self.homotopy = homotopy
-        self.mobject = mobject
-        self._make_calc(mobject)
-        self.apply_function_kwargs = (
-            apply_function_kwargs if apply_function_kwargs is not None else {}
-        )
-        super().__init__(mobject, run_time=run_time, **kwargs)
-
-    def function_at_time_t(self, t: float) -> tuple[float, float, float]:
-        return lambda p: self.homotopy(*p, t)
-
-    def interpolate_submobject(
-        self,
-        submobject: ParametrizedMobject,
-        starting_submobject: ParametrizedMobject,
-        alpha: float,
-    ) -> None:
-        submobject.points = starting_submobject.points
-        interpolated_points = self._interpolate_mobject_points(alpha)
-        submobject.points = interpolated_points
-
-
-class TestScene(m.Scene):
-    def construct(self):
-
-        def circle(theta: float):
-            return np.array([np.cos(theta), np.sin(theta), 0])
-
-        curve = m.ParametricFunction(circle, (0, 1, 0.05))
-        def htpy(theta: float, t: float):
-            return np.array([(1+t) * np.cos(theta), (1+t) * np.sin(theta), 0])
-        
-        homotopy = ParametrizedHomotopy(htpy, curve, run_time=1.0)
-        self.add(curve)
-        self.play(homotopy)
-
-    # # Test Bezier handle calculator
-    # n = 100
-    # calc = SmoothOpenPathBezierHandleCalculator(n)
-
-    # anchors = np.array([[np.cos(i / n), np.sin(i / n)] for i in range(n+1)])
-    # handles = calc.get_bezier_handles(anchors)
-    # print(anchors)
-    # print(handles)
-    # points = np.empty(shape=(3 * n + 1, 2))
-    # points[::3] = anchors
-    # points[1::3] = handles[::2]
-    # points[2::3] = handles[1::2]
-    # import matplotlib.pyplot as plt
-    # plt.scatter(points[:, 0], points[:, 1])
-    # plt.xlim(0, 1)
-    # plt.ylim(0, 1)
-    # plt.show()
