@@ -11,28 +11,38 @@ from lib import Point2D
 (Oscillating pendulum comes into view)
 I'm guessing (something about old grandfather clocks)
 
-There's a "fact" many of us learned in high school about pendulums which states that
-the period of oscillation is directly proportional to the square root of the length.
 
-(animation)
+
+There's a "fact" many of us learned in high school about pendulums which states that
+the period of oscillation is directly proportional to the square root of the length,
+and is roughly independent of the initial swing angle.
+
 For example, multiply the length by four, and the total swing time doubles.
 Cut it in half, and the swing time divides by the square root of two.
 
-Interestingly this rule-of-thumb says nothing about the swing angle.
+Now, this independence of the swing angle starts to break down for larger swing angles.
+The oscillation period is a bit longer when the swing angle is larger.
 
 (animation)
 
-If you start two identical pendulums off at different initial angles, they'll oscillate
-at the same frequency. Well ... (let animation go) ... not exactly. It turns out that the
-oscillation period is longer when the initial angle is longer. (Draw a curve showing the
-oscillation period as a function of the initial angle. Then show the pendulum next to
-a spring and the difference in the differential equations.)
+(Draw a curve showing the oscillation period as a function of the initial angle.)
+
+The dependence between the two isn't a very simple one, either. Deriving this curve requires
+using infinite series, and the value is closely related to so-called elliptic integrals.
+
+(History of timekeeping.
+
+Longitude problem. )
+
+(Then show the pendulum next to a spring and the difference in the differential equations.)
 
 (Aside on timekeeping and calibration. How this was problematic for long-term accuracy
 of pendulum clocks, and also for transporting clocks. Mention figures on the daily error
 of clocks.)
 
 (Pendulums and precision timekeeping. Harmonic oscillators.)
+
+(Longitude problem.)
 
 (Also, who even wanted to keep accurate time anyways? Talk about navigation. Astronomy.
 British crown and the longitude problem. In service of colonization and trade. Research this.)
@@ -42,6 +52,10 @@ idea: if the pendulum is ideally constricted along the sides, it moves faster to
 the edges and its period thus becomes independent of the initial angle. "Isochronous")
 
 (Now go into mathematics to show that this is a cycloid.)
+
+(Eventually, technology moved onto spring-based watches for accuracy and gravity-independence.
+What we got from this era is a nice piece of mathematics -- and an important part of its story
+is knowing how it arose.)
 """
 
 from lib import ParametrizedHomotopy, RungeKuttaAutonomous
