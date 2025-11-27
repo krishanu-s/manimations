@@ -30,9 +30,61 @@ The oscillation period is a bit longer when the swing angle is larger.
 The dependence between the two isn't a very simple one, either. Deriving this curve requires
 using infinite series, and the value is closely related to so-called elliptic integrals.
 
-(History of timekeeping.
+In any case, what it means is that a simple pendulum clock will become inaccurate by the
+end of the day, especially if you move it around.
 
-Longitude problem. )
+HISTORY OF TIMEKEEPING
+
+Sources:
+- https://museum.seiko.co.jp/en/knowledge/inventors_01/
+- Wikipedia...
+
+But who needs such an accurate timekeeping device, anyways?
+
+(History of pendulum timekeeping. 
+- Galileo studying pendulums in early 1600s, and noticed they are roughly isochronous.
+  Measurement error led him to think so, but Mersenne and others discovered they are not
+- Huygens proposed pendulum, and patented it in 1658.
+- Hooke in 1658.
+- Huygens in 1673 mathematical treatise on timekeeping and oscillation. Precursor to modern
+  variational calculus. Introduced cycloidal pendulum. While the mathematics was sound,
+  the engineering made it useless.
+- Hooke and the introduction of springs to regulate clocks
+- Huygens in 1675 translated this design into the spiral spring and balance wheel
+  pocket watch
+
+Relate to the problem of calculating longitude. Calculating the longitude of one's present
+location is equivalent to finding the time difference to another point of known longitude.
+So, calibrate a clock at the time you depart your origin, and thereafter you can calculate
+longitude to the level of accuracy of your clock.
+1 hour of time difference equals 15 degrees. 1 minute is a quarter degree, or 15 nautical miles.
+
+Any time you reach a new location whose longitude and latitude you know, you can
+recalibration based on knowing the time of sunrise (based on calendar)
+
+
+This was an observation pointed out in the 1500s by a Dutch mapmaker, Gemma Frisius. Coincidentally
+this lands around the beginning of the colonial eras of the Dutch and British.
+
+In fact, this was considered such an important problem that the British government formed
+a Board of Longitude in 1714, offering large prizes to any inventor who could produce an accurate
+method to measure longitude at sea, and materially supporting certain individuals
+working on a solution.
+
+Source: https://en.wikipedia.org/wiki/History_of_longitude#Government_initiatives
+(Even before this, there had been other such instances. Starting with Philip II of Spain in 1567
+who offered a prize for solving the longitude problem. Many observatories established to
+solve this very problem. Method of lunar distances.)
+
+(State power guiding mathematical inquiry in the pursuit of conquest.)
+
+The Empire's colonization efforts would be helped significantly by an accurate timekeeping
+device, because it would allow them to both create accurate maps through surveying and also
+place oneself on a map through celestial navigation. The required accuracy to estimate longitude
+to within one nautical mile, would be a few seconds' precision. Needed to maintain this on a
+moving ship. Eventually after centuries, culminated with John Harrison in 1770s who built
+an accurate marine chronometer.
+
 
 (Then show the pendulum next to a spring and the difference in the differential equations.)
 
@@ -221,21 +273,35 @@ class IsochronousPendulum(Pendulum):
     PROOF OF ISOCHRONICITY:
     The parametric equation for the path satisfies the following two relationships:
     
-    - y'(θ)/x'(θ) = tan(θ), i.e. the slope to the horizontal is θ.
-    - √((x')^2 + (y')^2) = L * cos(θ), i.e. the arc length increases at this rate.
+    (*) y'(θ)/x'(θ) = tan(θ), i.e. the slope to the horizontal is θ. This is essentially
+        a "tautological" consequence of any path parametrization.
+    (**) √((x'(θ))^2 + (y'(θ))^2) = L * cos(θ), i.e. the arc length increases at this rate.
+        This is a property that is needed to make the differential equation for v(t)
+        into that of a harmonic oscillator.
+
+    In fact, these two properties are enough to retrieve the parametrizations equations, as
+
+    √((x'(θ))^2 + (y'(θ))^2) = x'(θ) * √(1 + tan^2(θ)) = x'(θ) / cos(θ)
+    => x'(θ) = L * cos^2(θ) = (L/2) * (1 + cos(2θ))
+    which implies
+    => x(θ) = (L/2) * (θ + sin(2θ)/2) + x(0)
+    and also implies
+    => y'(θ) = L * cos(θ) * sin(θ) = (L/2) * sin(2θ)
+    => y(θ) = (L/2) * (cos(0)/2 - cos(2θ)/2) + y(0)
+
 
     Let's say that the linear velocity of the bob with respect to time t is given by
     v(t), and that the bob is at position (x(θ), y(θ)) for some time-dependent θ(t).
     By the first equation, the linear acceleration of the pendulum bob is g * sin(θ(t)),
     i.e.
     
-    (1) v' = - g * sin(θ).
+    (1) v'(t) = - g * sin(θ(t)).
 
     We can express the angular velocity as 
     
-    (2) θ' = v / (L * cos(θ))
+    (2) θ'(t) = v(t) / (L * cos(θ(t)))
     
-    Thus, v'' = - g * cos(θ) * θ' = - (g/L) * v. It follows that v
+    Thus, v''(t) = - g * cos(θ(t)) * θ'(t) = - (g/L) * v(t). It follows that v(t)
     (and also the position of the bob) satisfies Hooke's Law and always oscillates with
     frequency ω = √(g/L). The general solution is v(t) = Asin(ωt) + Bcos(ωt)
     where A^2 + B^2 <= g/L.
@@ -248,6 +314,14 @@ class IsochronousPendulum(Pendulum):
     v(t), or we can integrate the following differential equation for θ:
 
     θ'' = tan(θ) * (-g/L + (θ')^2)
+
+    OBTAINING THE PARAMETRIZATION FROM ISOCHRONICITY:
+    Suppose we have a curve we know is isochronous. How would we deduce it is a cycloid?
+    Equations (*) and (**) combined are enough to solve for x(θ) and y(θ), and thus retrieve
+    the cycloid equation. So it's enough to deduce (*) and (**). (*) is tautological, and
+    implies that √((x')^2 + (y')^2) = x' / cos(θ). From here, we perform the same substitutions
+    as above to get v'' = v * g * (cos^2(θ) / x'(θ)). The last part in parentheses has no
+    time-dependence
     """
 
     def parametrization(self, theta: float) -> np.ndarray[float]:
