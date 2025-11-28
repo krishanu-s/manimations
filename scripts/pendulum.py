@@ -238,12 +238,16 @@ class SimplePendulum(Pendulum):
     
     def period(self, theta: float, eps: float = 1e-4) -> float:
         """
-        Given the maximal angle of swing, returns the length of a single period of oscillation.
-        Calculates to precision epsilon.
-        Ref: https://math.stackexchange.com/questions/2257095/exact-period-of-simple-pendulum
+        Given the maximal angle of swing, returns the length of a single period of oscillation to precision epsilon.
+        The period is 4 * K(sin^2(θ/2)), where K is the complete elliptic integral of the first kind, i.e.
+
+        K(k) = (π/2) * sum_{n=0}^{∞}(k^n * (1*3*5*...*(2n-1))/(2*4*6*...*(2n)))^2
+        Refs:
+        - https://math.stackexchange.com/questions/2257095/exact-period-of-simple-pendulum
+        - https://en.wikipedia.org/wiki/Jacobi_elliptic_functions#Periodicity,_poles,_and_residues
+        - https://en.wikipedia.org/wiki/Elliptic_integral#Complete_elliptic_integral_of_the_first_kind
         """
-        # k is between -1/sqrt(2) and 1/sqrt(2)
-        k = np.sin((theta + math.pi/2)/2)
+        k = np.sin(theta / 2) ** 2
         summand = 1
         total = summand
         i = 0
@@ -251,7 +255,7 @@ class SimplePendulum(Pendulum):
             i += 1
             summand *= (k * (2*i-1)/(2*i)) ** 2
             total += summand
-        return 2 * math.pi * self.l * total
+        return 2 * math.pi * np.sqrt(self.l) * total
 
     def angle_to_arc_length(self, theta: float) -> float:
         return self.l * theta
@@ -469,6 +473,7 @@ class PendulumScene(m.Scene):
         if isinstance(pendulum, IsochronousPendulum):
             self.add(*pendulum.make_blocks())
 
+        # TODO Make this into a dedicated utils.py function. Maybe interpolate.py?
         def interpolate_vals(vals: list[float], t: float):
             """Given an input t, and a sequence of function output values
             f(0), f(dt), f(2*dt), ..., linearly interpolates between the given values
@@ -526,6 +531,10 @@ class SimplePendulumScene(PendulumScene):
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
 
+    def make_period_graph(self, pendulum: SimplePendulum):
+        # TODO Make a graph of period vs. initial angle.
+        pass
+
 class IsochronousPendulumScene(PendulumScene):
     def set_params(self):
         self.pendulum_type = IsochronousPendulum
@@ -539,3 +548,8 @@ class IsochronousPendulumScene(PendulumScene):
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
 
+if __name__ == "__main__":
+    # Dumping ground for new ideas.
+    pendulum = SimplePendulum(l=1/(2*np.pi)**2)
+    for theta in np.linspace(0, np.pi/2, 100):
+        print(theta, pendulum.period(theta, eps=1e-7))
