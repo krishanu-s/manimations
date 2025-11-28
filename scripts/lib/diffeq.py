@@ -29,7 +29,6 @@ class RungeKutta2:
         self.val.translate_x((k1.x + 2 * k2.x + 2 * k3.x + k4.x) * dt/6)
         self.val.translate_y((k1.y + 2 * k2.y + 2 * k3.y + k4.y) * dt/6)
 
-
 class AutonomousFirstOrderDiffEqSolver:
     t: float
     val: np.ndarray
@@ -44,7 +43,10 @@ class AutonomousFirstOrderDiffEqSolver:
     ):
         # Assert the same shape
         self.t = t0
-        self.val = np.stack((x0), axis=0) # Shape (2, N)
+        if isinstance(x0, float):
+            self.val = np.array(x0)
+        else:
+            self.val = x0
         self.f = f
 
     def step(self, dt: float):
