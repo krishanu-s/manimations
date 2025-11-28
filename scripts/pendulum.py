@@ -110,7 +110,7 @@ What we got from this era is a nice piece of mathematics -- and an important par
 is knowing how it arose.)
 """
 
-from lib import ParametrizedHomotopy, RungeKuttaAutonomous
+from lib import ParametrizedHomotopy, AutonomousSecondOrderDiffEqSolver
 
 
 # TODO Move these into their own file called "oscillators.py" and standardize the interfaces.
@@ -142,10 +142,10 @@ class Pendulum:
             return [sol(k * dt) for k in range(0, num_steps + 1)]
         except:
             self.set_initial_conditions(theta0, omega0)
-            vals = [self.solver.val.to_array()[0]]
+            vals = [self.solver.val[0]]
             for _ in range(num_steps):
                 self.step(dt, 10)
-                vals.append(self.solver.val.to_array()[0])
+                vals.append(self.solver.val[0])
             return vals
         
     def analytic_solution_angle(self, theta0: float, omega0: float) -> Callable[[float], float]:
@@ -156,13 +156,14 @@ class Pendulum:
     def set_initial_conditions(self, theta0: float, omega0: float):
         """Sets the initial conditions for the pendulum in terms of angular position
          and velocity, and initializes a solver."""
-        self.solver = RungeKuttaAutonomous(
+        self.solver = AutonomousSecondOrderDiffEqSolver(
             t0=0,
-            val=Point2D(theta0, omega0),
+            x0=np.array(theta0),
+            v0=np.array(omega0),
             f=self.diff_eq
             )
         
-    def diff_eq(self, Point2D) -> float:
+    def diff_eq(self, val: np.ndarray) -> float:
         """Differential equation for the second derivative of the angular position
         as a function of t and x. Implemented in the sub-class."""
         raise NotImplementedError
@@ -203,15 +204,15 @@ class Pendulum:
 class SimplePendulum(Pendulum):
     """Models a simple pendulum whose bob moves along a circular arc."""
 
-    def diff_eq(self, val: Point2D) -> float:
+    def diff_eq(self, val: np.ndarray) -> float:
         """Since x'' = -g * sin(θ) and x = L * θ, we get θ'' = (-g/L) * sin(θ)."""
-        return -math.sin(val.x) / self.l
+        return -np.sin(val[0]) / self.l
     
     def kinetic_energy(self, v: float):
         return 0.5 * (self.l * v) ** 2
     
     def potential_energy(self, x: float):
-        return self.l * (1 - math.cos(x))
+        return self.l * (1 - np.cos(x))
     
     def analytic_solution_arc_length(self, x0: float, v0: float) -> Callable[[float], float]:
         """Given (x(0), x'(0)), returns an explicit function x(t) describing the motion of the
@@ -375,9 +376,9 @@ class IsochronousPendulum(Pendulum):
         f = self.analytic_solution_arc_length(x0, v0)
         return lambda t: self.arc_length_to_angle(f(t), None)
     
-    def diff_eq(self, val: Point2D):
+    def diff_eq(self, val: np.ndarray):
         """Differential equation for the angular position θ, expressed as θ'' = f(θ, θ')"""
-        return np.tan(val.x) * (- 1/self.l + val.y ** 2)
+        return np.tan(val[0]) * (- 1/self.l + val[1] ** 2)
     
     def step(self, dt: float, num_iterations: float = 10):
         if self.solver.val.x > np.pi/2 - dt:

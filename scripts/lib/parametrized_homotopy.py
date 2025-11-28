@@ -86,7 +86,7 @@ class SmoothOpenPathBezierHandleCalculator:
 
 class SmoothClosedPathBezierHandleCalculator:
     """Should be the same as SmoothOpenPathBezierHandleCalculator but for close loops."""
-    raise NotImplementedError
+    pass
 
 class ParametrizedHomotopy(m.Animation):
     """
