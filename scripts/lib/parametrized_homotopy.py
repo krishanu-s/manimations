@@ -84,6 +84,10 @@ class SmoothOpenPathBezierHandleCalculator:
         handles[1::2] = H2
         return handles
 
+class SmoothClosedPathBezierHandleCalculator:
+    """Should be the same as SmoothOpenPathBezierHandleCalculator but for close loops."""
+    raise NotImplementedError
+
 class ParametrizedHomotopy(m.Animation):
     """
     A function H: [0, L] x [0, 1] -> R^2.
