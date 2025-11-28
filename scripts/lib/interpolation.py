@@ -1,6 +1,10 @@
 import numpy as np
 
 
+# TODO Make the interfaces clearer from the outside.
+# TODO Add docstrings
+# TODO Make the 2d version non-recursive to improve algorithm speed.
+
 def interpolate_vals(vals: np.ndarray, t_min: float, dt: float, t: float) -> float:
     """Given an input t, and a sequence of function output values
     f(0), f(dt), f(2*dt), ..., f(N*dt), linearly interpolates between the given values

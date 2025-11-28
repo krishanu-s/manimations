@@ -80,24 +80,66 @@ class OneDimHeatEquationScene(m.Scene):
         
         # x dimension is first, t dimension is second
         result = np.stack(result, axis=-1)
-        print("Result", result)
 
         # Make animation
-        # TODO Construct curve as m.ParametricFunction and homotopy as ParametrizedHomotopy,
-        # using the interpolation function.
+        l = 3.0 # Scale of width
+        a = 3.0 # Scale of height
         curve = m.ParametricFunction(
-            function=lambda x: (x, interpolate_vals(init_vals, x_min, dx, x), 0),
+            function=lambda x: (l * x, a * interpolate_vals(init_vals, x_min, dx, x), 0),
             t_range=(x_min, x_max, 0.1)
         )
         self.add(curve)
 
         homotopy = ParametrizedHomotopy(
-            homotopy=lambda x, t: (x, interpolate_vals_2d(result, x_min, dx, x, 0, dt, t), 0),
-            mobject=curve
+            homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, x_min, dx, x, 0, dt, t), 0),
+            mobject=curve,
+            rate_func=m.linear
         )
         self.play(homotopy)
 
-class OneDimWaveEquation:
-    def diff_eq(self):
-        """(d/dt)^2 f(x, t) = -C * (d/dx)^2 f(x, t)"""
-        pass
+class OneDimWaveEquationScene(m.Scene):
+    def construct(self):
+        """(d/dt)^2 f(x, t) = C * (d/dx)^2 f(x, t)"""
+        x_min, x_max = 0, 1
+        num_steps = 10
+        dx = (x_max - x_min) / num_steps
+        init_vals = np.array([
+            np.sin(x * np.pi)
+            for x in np.linspace(x_min + dx, x_max - dx, num_steps - 1)
+            ])
+        fn = OneDimFunction(x_min, x_max, num_steps, 0, 0)
+        c = 3.0
+        solver = AutonomousSecondOrderDiffEqSolver(
+            t0=0,
+            x0=init_vals.copy(),
+            v0=np.zeros_like(init_vals),
+            f=lambda arr: c * fn.laplacian(arr[0])
+            )
+
+        result = [init_vals.copy()]
+        print(init_vals)
+
+        dt = 1e-3
+        for i in range(1000):
+            solver.step(dt)
+            result.append(solver.val[0].copy())
+            print(solver.val[0])
+        
+        # x dimension is first, t dimension is second
+        result = np.stack(result, axis=-1)
+
+        # Make animation
+        L = 3.0 # Scale of width
+        A = 3.0 # Scale of height
+        curve = m.ParametricFunction(
+            function=lambda x: (L * x, A * interpolate_vals(init_vals, x_min, dx, x), 0),
+            t_range=(x_min, x_max, 0.1)
+        )
+        self.add(curve)
+
+        homotopy = ParametrizedHomotopy(
+            homotopy=lambda x, t: (L * x, A * interpolate_vals_2d(result, x_min, dx, x, 0, dt, t), 0),
+            mobject=curve,
+            rate_func=m.linear
+        )
+        self.play(homotopy)
