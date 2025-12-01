@@ -29,7 +29,18 @@ class RungeKutta2:
         self.val.translate_x((k1.x + 2 * k2.x + 2 * k3.x + k4.x) * dt/6)
         self.val.translate_y((k1.y + 2 * k2.y + 2 * k3.y + k4.y) * dt/6)
 
-class AutonomousFirstOrderDiffEqSolver:
+
+class AutonomousDiffEqSolver:
+    """Generic interface for numerical solvers for autonomous differential equations."""
+    @property
+    def get_x(self):
+        raise NotImplementedError
+    
+    def step(self, dt: float):
+        """Step forward in time by dt."""
+        raise NotImplementedError
+
+class AutonomousFirstOrderDiffEqSolver(AutonomousDiffEqSolver):
     t: float
     val: np.ndarray
     """Numerically solves a differential equation of the form x'(t) = f(x(t)), where x(t)
@@ -49,6 +60,10 @@ class AutonomousFirstOrderDiffEqSolver:
             self.val = x0
         self.f = f
 
+    @property
+    def get_x(self) -> np.ndarray:
+        return self.val
+
     def step(self, dt: float):
         """Step forward in time by dt"""
         k1 = self.f(self.val)
@@ -58,7 +73,7 @@ class AutonomousFirstOrderDiffEqSolver:
         self.t += dt
         self.val += (k1 + k2 * 2 + k3 * 2 + k4) * (dt/6)
 
-class AutonomousSecondOrderDiffEqSolver:
+class AutonomousSecondOrderDiffEqSolver(AutonomousDiffEqSolver):
     t: float
     val: np.ndarray
     """Numerically solves a differential equation of the form x''(t) = f(x(t), x'(t)), where x(t)
@@ -78,6 +93,10 @@ class AutonomousSecondOrderDiffEqSolver:
         self.t = t0
         self.val = np.stack((x0, v0), axis=0) # Shape (2, N)
         self.f = f
+
+    @property
+    def get_x(self) -> np.ndarray:
+        return self.val[0]
 
     def step(self, dt: float):
         """Step forward in time by dt"""
