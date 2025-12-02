@@ -14,6 +14,9 @@ from lib import (
     interpolate_vals_2d
     )
 
+# TODO Figure out how to forward-solve the wave equation in (1+1)-D and (2+1)-D
+# with arbitrary boundary conditions. Numerical stability will be a major hurdle here.
+
 class Function:
     """Interface for manipulating scalar-valued functions defined on a compact region of
     space - usually rectilinear."""
@@ -78,7 +81,6 @@ class OneDimFunctionWithBoundary(Function):
             self.vals,
             self.ymax * np.expand_dims(np.ones_like(self.vals[0]), 0),
         ), axis=0)
-    
 
     def laplacian(self, vals: np.ndarray | None = None) -> np.ndarray:
         """
@@ -103,6 +105,72 @@ class OneDimFunctionWithBoundary(Function):
         result -= 2 * vals
         result /= self.dx ** 2
         return result
+
+
+
+class TwoDimFunctionWithBoundary(Function):
+    """
+    Real array-valued function f(x, y) defined on a subset of a rectangle in the plane.
+    Includes boundary conditions on the perimeter of the rectangle.
+    """
+    pass
+
+
+class Foo(m.Scene):
+    """Dumping ground for the time-evolution of a function f(x, t) with x, t >= 0 defined by
+    boundary conditions f(0, t) and f(x, 0), and by the wave equation (d/dt)^2 f(x, t) = (d/dx)^2 f(x, t)"""
+    def construct(self):
+        # Define f(0, t), f_t(0, t)
+        def left_bdy(t: float):
+            return np.array([np.sin(t), np.cos(t)])
+        
+        # Set initial values
+        num_steps = 10
+        xmin = 0
+        xmax = 1
+        dx = (xmax - xmin) / num_steps
+        init_vals = np.concatenate(
+            (np.expand_dims(left_bdy(0), -1), np.zeros((2, num_steps))),
+            axis=-1)
+
+        def laplacian(arr: np.ndarray):
+            result = (arr[2:] + arr[:-2] - 2 * arr[1:-1]) / (dx ** 2)
+            return np.concatenate((np.array([0]), result, np.array([result[-1]])), axis=0)
+        
+        solver = AutonomousSecondOrderDiffEqSolver(
+            t0=0,
+            x0=init_vals[0],
+            v0=init_vals[1],
+            f=lambda arr: laplacian(arr[0]))
+        
+        result = [init_vals[0].copy()]
+        run_time = 5.0
+        num_iters = 5000
+        dt = run_time / num_iters
+        assert dt < dx ** 2, "Must set a smaller time-step value for numerical stability."
+        for _ in range(num_iters):
+            solver.step(dt)
+            solver.val[:, 0] = left_bdy(solver.t)
+            result.append(solver.val[0].copy())
+            
+        result = np.stack(result, axis=-1)
+
+        # Make animation
+        l = 5.0 # Scale of width
+        a = 1.0 # Scale of height
+        curve = m.ParametricFunction(
+            function=lambda x: (l * x, a * interpolate_vals(result[0], xmin, dx, x), 0),
+            t_range=(xmin, xmax, dx)
+        )
+        self.add(curve)
+
+        homotopy = ParametrizedHomotopy(
+            homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / num_iters, t), 0),
+            mobject=curve,
+            rate_func=m.linear,
+            run_time = run_time,
+        )
+        self.play(homotopy)
 
 
 class OneDimHeatEquationScene(m.Scene):
