@@ -106,8 +106,6 @@ class OneDimFunctionWithBoundary(Function):
         result /= self.dx ** 2
         return result
 
-
-
 class TwoDimFunctionWithBoundary(Function):
     """
     Real array-valued function f(x, y) defined on a subset of a rectangle in the plane.
@@ -116,43 +114,248 @@ class TwoDimFunctionWithBoundary(Function):
     pass
 
 
-class Foo(m.Scene):
-    """Dumping ground for the time-evolution of a function f(x, t) with x, t >= 0 defined by
-    boundary conditions f(0, t) and f(x, 0), and by the wave equation (d/dt)^2 f(x, t) = (d/dx)^2 f(x, t)"""
-    def construct(self):
-        # Define f(0, t), f_t(0, t)
-        def left_bdy(t: float):
-            return np.array([np.sin(t), np.cos(t)])
+class WaveEquation1D(m.Scene):
+    """
+    Dumping ground for simulating and animating the time-evolution of a function f(x, t)
+    according to the differential equation (d/dt)^2 f(x, t) = (d/dx)^2 f(x, t), subject
+    to some initial conditions.
+
+    The core of the simulation consists of a few components:
+
+    (*) At any time, we represent (f(X, t), d_x f(X, t)) at a discrete mesh X for a single time-value t.
+    This representation evolves according to the differential equation above.
+
+    (*) How one calculates the Laplacian (d/dx)^2 f(x, t)
+    
+    There are various versions of this simulation to solve. If one thinks of this problem
+    as solving for f(x, t) on the interior of a region bounded by a 1-D manifold in the plane,
+    then the various versions of this problem correspond to different manifold shapes.
+
+    (|_|) t >= 0 and xmin <= x <= xmax, where f(xmin, t), f(xmax, t), and f(x, 0) are given functions.
+        Represents a string controlled at two ends.
+
+    (|_) t >= 0 and x >= xmin, where f(xmin, t) and f(x, 0) are given functions.
+        Represents a string controlled at one end and unbounded at the other
+    
+    TODO Once these are solved, we will move onto 2D animations.
+    """
+
+    def single_constrained(self):
+        xmin = 0.0
+        xmax = 5.0 # Maximum sample value for f
+        xdiff = xmax - xmin
+
+        # Number of sample points for f
+        Nx = 100
+        dx = xdiff / Nx
+
+        # Temporal resolution on f
+        Nt = 10000
+        total_t = 15.0
+        dt = total_t / Nt
+
+        # Initial string value and its time derivative
+        def f0(x: float):
+            return np.array([
+                np.exp(-x) * np.cos(np.pi * x),
+                0
+                ])
+
+        # Left boundary value and its time derivative
+        def fmin(t):
+            return np.array([
+                [np.cos(4 * t)],
+                [-4 * np.sin(4 * t)]
+            ])
+        
+        # Vals is of shape (N + 1,), and represents f(X, t)
+        # Output is of shape (N ,)
+        def laplacian(vals: np.ndarray):
+            l = (vals[:-2] + vals[2:] - 2 * vals[1:-1])
+            # TODO This is our estimation of the laplacian value at the endpoint,
+            # but there might be a better way
+            bdy = np.array([2 * l[-1] - l[-2]]) # Estimate laplacian value at the endpoint
+            return np.concatenate((l, bdy), axis=0) / (dx ** 2)
+        
+        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_x * f(X, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1, 1:], laplacian(vals_and_df[0])), axis=0)
+
+            # Step forward to f(x, t + dt/2) via the derivative
+            # Step forward to d_x * f(x, t + dt/2) via the Laplacian
+            # Append on boundary values
+            p1 = np.concatenate((
+                fmin(t + dt/2),
+                vals_and_df[:, 1:] + (dt / 2) * k1,
+            ), axis=-1)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1, 1:], laplacian(p1[0])), axis=0)
+            p2 = np.concatenate((
+                fmin(t + dt/2),
+                vals_and_df[:, 1:] + (dt / 2) * k2,
+            ), axis=-1)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1, 1:], laplacian(p2[0])), axis=0)
+            p3 = np.concatenate((
+                fmin(t + dt),
+                vals_and_df[:, 1:] + dt * k3,
+            ), axis=-1)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1, 1:], laplacian(p3[0])), axis=0)
+            
+            ## Calculate new vals
+            new_vals_and_df = np.concatenate((
+                fmin(t + dt),
+                vals_and_df[:, 1:] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4),
+            ), axis=-1)
+            return new_vals_and_df
         
         # Set initial values
-        num_steps = 10
-        xmin = 0
-        xmax = 1
-        dx = (xmax - xmin) / num_steps
-        init_vals = np.concatenate(
-            (np.expand_dims(left_bdy(0), -1), np.zeros((2, num_steps))),
-            axis=-1)
+        vals = np.stack([f0(x) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
+        result = [vals[0].copy()]
 
-        def laplacian(arr: np.ndarray):
-            result = (arr[2:] + arr[:-2] - 2 * arr[1:-1]) / (dx ** 2)
-            return np.concatenate((np.array([0]), result, np.array([result[-1]])), axis=0)
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated
+        # to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            # print(vals)
+            result.append(vals[0].copy())
         
-        solver = AutonomousSecondOrderDiffEqSolver(
-            t0=0,
-            x0=init_vals[0],
-            v0=init_vals[1],
-            f=lambda arr: laplacian(arr[0]))
+        result = np.stack(result, axis=-1)
+
+        # Make animation
+        l = 2.0 # Scale of width
+        a = 0.5 # Scale of height
+        offset = np.array([-5.0, 0.0, 0.0])
+        curve = m.ParametricFunction(
+
+            function=lambda x: offset + np.array([l * x, a * interpolate_vals(result[0], xmin, dx, x), 0]),
+            t_range=(xmin, xmax, dx)
+        )
+        self.add(curve)
+
+        homotopy = ParametrizedHomotopy(
+            homotopy=lambda x, t: offset + np.array([l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / Nt, t), 0]),
+            mobject=curve,
+            rate_func=m.linear,
+            run_time = total_t,
+        )
+        # TODO Animate movement of bob as well
+        # TODO Make this controlled by a ValueTracker
+        self.play(homotopy)
+
+    def double_constrained(self):
+        """String constrained/controlled at two endpoints."""
+        xmin = 0.0
+        xmax = 1.0
+        xdiff = xmax - xmin # This quantity occurs enough that we give it a name
+
+        # Number of sample points for f
+        Nx = 10
+        dx = xdiff / Nx
+
+        # Temporal resolution on f
+        Nt = 1000
+        total_t = 2.0
+        dt = total_t / Nt
+
+        # Initial string value and its time derivative
+        w = 3 # Integer representing the number of half-wavelengths of the initial wave
+        def f0(x: float):
+            return np.array([
+                np.sin(np.pi * w * (x - xmin) / xdiff),
+                0
+                ])
+
+        # Left boundary value and its time derivative
+        def fmin(t):
+            return np.array([
+                [0],
+                [0]
+            ])
         
-        result = [init_vals[0].copy()]
-        run_time = 5.0
-        num_iters = 5000
-        dt = run_time / num_iters
-        assert dt < dx ** 2, "Must set a smaller time-step value for numerical stability."
-        for _ in range(num_iters):
-            solver.step(dt)
-            solver.val[:, 0] = left_bdy(solver.t)
-            result.append(solver.val[0].copy())
+        # Right boundary value and its time derivative
+        def fmax(t):
+            return np.array([
+                [0],
+                [0]
+            ])
+
+        
+        # Vals is of shape (N + 1,), and represents f(X, t).
+        # Output is of shape (N - 1,)
+        def laplacian(vals: np.ndarray):
+            return (vals[:-2] + vals[2:] - 2 * vals[1:-1]) / (dx ** 2)
+
+        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_x * f(X, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1, 1:-1], laplacian(vals_and_df[0])), axis=0)
+
+            # Step forward to f(x, t + dt/2) via the derivative
+            # Step forward to d_x * f(x, t + dt/2) via the Laplacian
+            # Append on boundary values
+            p1 = np.concatenate((
+                fmin(t + dt/2),
+                vals_and_df[:, 1:-1] + (dt / 2) * k1,
+                fmax(t + dt/2),
+            ), axis=-1)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1, 1:-1], laplacian(p1[0])), axis=0)
+            p2 = np.concatenate((
+                fmin(t + dt/2),
+                vals_and_df[:, 1:-1] + (dt / 2) * k2,
+                fmax(t + dt/2),
+            ), axis=-1)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1, 1:-1], laplacian(p2[0])), axis=0)
+            p3 = np.concatenate((
+                fmin(t + dt),
+                vals_and_df[:, 1:-1] + dt * k3,
+                fmax(t + dt),
+            ), axis=-1)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1, 1:-1], laplacian(p3[0])), axis=0)
             
+            ## Calculate new vals
+            new_vals_and_df = np.concatenate((
+                fmin(t + dt),
+                vals_and_df[:, 1:-1] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4),
+                fmax(t + dt),
+            ), axis=-1)
+            return new_vals_and_df
+
+
+        # Set initial values
+        vals = np.stack([f0(x) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
+        result = [vals[0].copy()]
+
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated
+        # to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            # print(vals)
+            result.append(vals[0].copy())
+        
         result = np.stack(result, axis=-1)
 
         # Make animation
@@ -165,12 +368,68 @@ class Foo(m.Scene):
         self.add(curve)
 
         homotopy = ParametrizedHomotopy(
-            homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / num_iters, t), 0),
+            homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / Nt, t), 0),
             mobject=curve,
             rate_func=m.linear,
-            run_time = run_time,
+            run_time = total_t,
         )
         self.play(homotopy)
+
+    def construct(self):
+        # self.double_constrained()
+        self.single_constrained()
+
+        # # Define f(0, t), f_t(0, t)
+        # def left_bdy(t: float):
+        #     return np.array([np.sin(t), np.cos(t)])
+        
+        # # Set initial values
+        # num_steps = 10
+        # xmin = 0
+        # xmax = 1
+        # dx = (xmax - xmin) / num_steps
+        # init_vals = np.concatenate(
+        #     (np.expand_dims(left_bdy(0), -1), np.zeros((2, num_steps))),
+        #     axis=-1)
+
+        # def laplacian(arr: np.ndarray):
+        #     result = (arr[2:] + arr[:-2] - 2 * arr[1:-1]) / (dx ** 2)
+        #     return np.concatenate((np.array([0]), result, np.array([result[-1]])), axis=0)
+        
+        # solver = AutonomousSecondOrderDiffEqSolver(
+        #     t0=0,
+        #     x0=init_vals[0],
+        #     v0=init_vals[1],
+        #     f=lambda arr: laplacian(arr[0]))
+        
+        # result = [init_vals[0].copy()]
+        # run_time = 5.0
+        # num_iters = 5000
+        # dt = run_time / num_iters
+        # assert dt < dx ** 2, "Must set a smaller time-step value for numerical stability."
+        # for _ in range(num_iters):
+        #     solver.step(dt)
+        #     solver.val[:, 0] = left_bdy(solver.t)
+        #     result.append(solver.val[0].copy())
+            
+        # result = np.stack(result, axis=-1)
+
+        # # Make animation
+        # l = 5.0 # Scale of width
+        # a = 1.0 # Scale of height
+        # curve = m.ParametricFunction(
+        #     function=lambda x: (l * x, a * interpolate_vals(result[0], xmin, dx, x), 0),
+        #     t_range=(xmin, xmax, dx)
+        # )
+        # self.add(curve)
+
+        # homotopy = ParametrizedHomotopy(
+        #     homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / num_iters, t), 0),
+        #     mobject=curve,
+        #     rate_func=m.linear,
+        #     run_time = run_time,
+        # )
+        # self.play(homotopy)
 
 
 class OneDimHeatEquationScene(m.Scene):
