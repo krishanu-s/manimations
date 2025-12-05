@@ -1,12 +1,3 @@
-# Visualizations associated to a pendulum
-
-import math
-from typing import Callable, Any
-import numpy as np
-from scipy.special import ellipj
-import manim as m
-from lib import Point2D
-
 """
 (Oscillating pendulum comes into view)
 I'm guessing (something about old grandfather clocks)
@@ -110,6 +101,15 @@ What we got from this era is a nice piece of mathematics -- and an important par
 is knowing how it arose.)
 """
 
+# theta = θ
+# sqrt = √
+# pi = π
+
+import math
+from typing import Callable, Any
+import numpy as np
+from scipy.special import ellipj
+import manim as m
 from lib import ParametrizedHomotopy, AutonomousSecondOrderDiffEqSolver
 
 
@@ -451,6 +451,8 @@ class Spring:
     """An oscillating spring."""
     pass
 
+### Scenes
+
 class PendulumScene(m.Scene):
     def set_params(self):
         self.pendulum_type = Pendulum
@@ -547,6 +549,297 @@ class IsochronousPendulumScene(PendulumScene):
         initial_angles = np.linspace(0.1, np.pi/4, 5)
         colors = [m.BLUE, m.RED, m.ORANGE, m.GREEN, m.YELLOW]
         return initial_angles, colors
+
+class CycloidalPendulumVideo(m.Scene):
+    """Animations associated to a video on Huygens' cycloidal pendulum and the tautochrone problem."""
+    def scene_7(self):
+        """
+        Argument that a cycloidal pendulum is isochronous.
+        (1a) Unwind the cycloid to a straight-line path.
+        (1b) Draw tick marks on the cycloid path and the straight-line path
+
+        (2a) Animate oscillating point on both, synced up
+        (2b) Fade in an oscillating spring on the straight-line path
+        (2c) Add several synced-up springs with different amplitudes.
+
+        (3a) Pause the animation in a stretched state
+        (3b) Fade in the differential equation s''(t) = -C\cdot s(t)
+        (3c) Fade in a phrase: "Autonomous: s'' = f(s)"
+        (3d) Fade to a differential equation to one without t dependence.
+        (3e) (Insert separate scene that f(s) = constant * s is the only autonomous differential equation which is isochronous)
+
+        (4a) Add a tangent line, angle sign, and theta to the cycloid path. Then fade in the differential equation s'' = g * sin(θ)
+        (4b) Fade in = C * s.
+        (4c) When s = L, sin(θ) = 1 so C = g/L. Thus \boxed{s = Lsin(θ)}. This uniquely defines the path.
+        (4d) (Check the parametric equation for the cycloid satisfies this equation.)
+        """
+        ## (1a) Add cycloid path and fade in tick marks to parametrize arc length
+
+        # Parametrization for the cycloid, where t lies in (-π, π)
+        param_cycloid = lambda t: (self.l / 4) * np.array([t + np.sin(t), 1 - np.cos(t), 0])
+
+        # Add cycloid
+        cycloid_path = m.ParametricFunction(
+            function=param_cycloid,
+            t_range=(-math.pi, math.pi))
+        self.add(cycloid_path)
+
+        ## (1b) Unwrap the ticked cycloid path to a ticked straight-line path below
+
+        # Parametrization for the straight path,  where t lies in (-π, π)
+        param_straight = lambda t: np.array([t * self.l / math.pi, -1.0, 0])
+
+        # Add another cycloid path and homotope it to be straight
+        straight_path = cycloid_path.copy()
+        straight_path = m.ParametricFunction(
+            function=param_cycloid,
+            t_range=(-math.pi, math.pi, math.pi / 100))
+        self.add(straight_path)
+        self.play(ParametrizedHomotopy(
+            homotopy=lambda t, alpha: alpha * param_straight(t) + (1-alpha) * param_cycloid(t),
+            mobject=straight_path
+        ), run_time=1.0)
+        self.add(straight_path)
+
+        ## (1c) Fade in tick marks
+
+        # Define parameters for ticks
+        tick_length = 0.1
+        tick_positions = np.linspace(0.0, 1.0, 11)
+
+        # Add cycloid ticks
+        cycloid_tick_values = [2 * np.arcsin(2 * x - 1) for x in tick_positions]
+        cycloid_ticks = m.VGroup(*[
+            m.Line(
+                param_cycloid(t) + tick_length * np.array([-np.sin(t/2), np.cos(t/2), 0]),
+                param_cycloid(t) - tick_length * np.array([-np.sin(t/2), np.cos(t/2), 0])
+                )
+            for t in cycloid_tick_values
+        ])
+
+        # Add line ticks
+        line_tick_values = [x * math.pi + (1-x) * (-math.pi) for x in tick_positions]
+        line_ticks = m.VGroup(*[
+            m.Line(
+                param_straight(t) + tick_length * np.array([0, 1, 0]),
+                param_straight(t) - tick_length * np.array([0, 1, 0])
+            )
+            for t in line_tick_values
+        ])
+        
+        self.play(m.FadeIn(cycloid_ticks), m.FadeIn(line_ticks), run_time=1.0)
+
+        ## (2a) Animate oscillating point on both paths, synced to each other
+        time = m.ValueTracker(0) # Initiate time variable: this will control animations going forward
+
+        cycloid_bob = m.Dot(np.array([0, 0, 0]), color=m.RED)
+        cycloid_bob.add_updater(lambda mobj: mobj.move_to(
+            param_cycloid(2 * np.arcsin(np.cos(time.get_value())))
+        ))
+
+        line_bob = m.Dot(np.array([0, -1, 0]), color=m.RED)
+        line_bob.add_updater(lambda mobj: mobj.move_to(
+            param_straight(np.pi * np.cos(time.get_value()))
+            ))
+
+        self.add(line_bob, cycloid_bob)
+        self.play(time.animate.increment_value(6), rate_func=m.linear, run_time=3.0)
+
+        ## (2b) Fade in an oscillating spring on the straight-line path
+        def spring_spiral(t, num_spirals: int = 10):
+            # TODO When t=1 the output should equal (0, 0, 0), and
+            # when t=0 the output should equal 
+            theta = (2*num_spirals + 1) * np.pi * t
+            h = 0.15
+            w = 0.1
+            return -np.array([w * np.cos(theta), h * np.sin(theta), 0])
+        
+        def make_spring_with_updater(i: int, a: float):
+            g = m.VGroup()
+            offset = - i * np.array([0, 0.5, 0])
+            def spring_updater(mobj):
+                mobj.become(
+                    m.ParametricFunction(
+                        lambda t: param_straight(t * np.cos(time.get_value()) * np.pi * a + (1-t) * (-np.pi - 0.8)) + spring_spiral(t) - spring_spiral(1) + offset,
+                        t_range=(0, 1, 1e-2)
+                    )
+                )
+            def bob_updater(mobj):
+                mobj.move_to(param_straight(np.cos(time.get_value()) * np.pi * a) + offset)
+            spring = m.VMobject().add_updater(spring_updater)
+            bob = m.Dot(
+                param_straight(np.cos(time.get_value()) * np.pi * a) + offset + spring_spiral(1),
+                radius=0.08, color=m.RED
+                ).add_updater(bob_updater)
+            g.add(spring, bob)
+            return g
+        self.add(
+            make_spring_with_updater(0, 1.0),
+            m.Line(
+                np.array([(-0.8 - np.pi) * self.l / math.pi, -0.75, 0]) + spring_spiral(0) - spring_spiral(1),
+                np.array([(-0.8 - np.pi) * self.l / math.pi, -2.25, 0]) + spring_spiral(0) - spring_spiral(1),
+            )
+        )
+        self.remove(line_bob)
+        self.play(time.animate.increment_value(6.0), rate_func=m.linear, run_time=3.0)
+        
+        ## (2c) Add several oscillating springs below the straight-line path
+        self.add(*[
+            make_spring_with_updater(i, a)
+            for i, a in [(1, 0.7), (2, 0.4)]
+            ])
+        self.play(time.animate.increment_value(6.0), rate_func=m.linear, run_time=3.0)
+
+        ## (3a) Pause the animation in a stretched state (don't advance time any more, and eliminate time variable)
+        ## (3b) Add a variable s pointing to the value it measures. TODO
+        ## (3c) Fade in the autonomous differential equation
+        diffeq = m.MathTex("\ddot{s} = -C \cdot s")
+        diffeq.move_to(np.array([0, -3.0, 0]))
+        self.play(m.Write(diffeq))
+        self.wait(2.0) 
+        ## (3d) Explain and indicate both are autonomous, i.e. dependent only on state and not separately on time (TODO)
+        
+        ## ((3e) Here we would reference a different scene which explains why this is the only autonomous differential equation) (TODO)
+
+        ## (4) Fade out springs and tick marks TODO
+        ## (4a) Add tangent line, angle sign, and theta to the cycloid path TODO
+        ## (4b) Fade in differential equation \ddot{s} = -g \cdot \sin(\theta) TODO
+        ## (4c) Add below C \cdot s = -g \cdot \sin(\theta) TODO
+        ## (4d) Transform the last equation into s = (-g/C) \cdot \sin(\theta) TODO
+        ## (4e) Move theta to pi/2 and write that s = L and \sin(\theta)=1, so s = L\sin(\theta) TODO
+        
+        ## (5a) Keep the tautochrone equation on screen and take time to animate the bob back and forth independent of time to see that it's true. This equation defines isochronicity, and could be called the "tautochrone equation". TODO
+
+        ## (5b) Separate scene to explain why an explicit dependence between s and theta uniquely defines the path TODO
+
+        ## (5c) Clear the screen except for the tautochrone equation TODO
+        ## (5d) Animate construction of a cycloid, and derive x(t) and y(t). TODO
+        ## (5e) Geometric reason that theta = t / 2, thus change x and y to be in terms of theta. TODO
+        ## (5f) s in terms of x and y, thus in terms of theta. TODO
+
+
+    def set_params(self):
+        """
+        Defines parameters.
+        - L is the length of the pendulum string, or alternatively the length of the cycloid path from bottom to top.
+        - R is the radius of the circle defining the cycloid.
+        """
+        self.l = 4
+        self.r = self.l / 4
+    
+    def param(self, t: float):
+        """Parametrizes the points on a cycloid from t=-π to t=π."""
+        return self.r * np.array([t + np.sin(t), 1 - np.cos(t), 0])
+    
+    def param_center(self, t: float):
+        return self.r * np.array([t, 1, 0])
+    
+    def make_cycloid_path(self, start: float = -np.pi, end: float = np.pi) -> m.ParametricFunction:
+        return m.ParametricFunction(function=self.param, t_range=(start, end))
+    
+    def animate_cycloid_definition(self):
+        """Animates the creation of a cycloid."""
+        # The start and end angles of the path
+        start = -np.pi
+        end = np.pi
+
+        # Parametrizes time evolution for rolling circle
+        time = m.ValueTracker(start)
+        
+        center = m.Dot(
+            point=self.param_center(start),
+            radius=0.05,
+            fill_opacity=1.0,
+            )
+        center.add_updater(lambda z: z.move_to(self.param_center(time.get_value())))
+
+        radius = m.DashedLine(self.param_center(start), self.param(start), stroke_width=2.0)
+        radius.add_updater(lambda z: z.become(
+            m.DashedLine(self.param_center(time.get_value()), self.param(time.get_value()), stroke_width=2.0)
+            ))
+
+        circle = m.Circle(radius=r, arc_center=self.param_center(start))
+        circle.add_updater(lambda z: z.move_to(self.param_center(time.get_value())))
+
+        pt = m.Dot(
+            point=self.param(start),
+            radius=0.08,
+            fill_opacity=1.0,
+            )
+        pt.add_updater(lambda z: z.move_to(self.param(time.get_value())))
+
+        cycloid_path = m.VMobject()
+        u = lambda z: z.become(self.make_cycloid_path(start=start, end=time.get_value()))
+        cycloid_path.add_updater(u)
+
+        self.add(radius, center, circle, pt, cycloid_path)
+        self.play(time.animate.set_value(end), run_time=2.0)
+
+        self.play(m.FadeOut(center, radius, circle, pt))
+        cycloid_path.remove_updater(u)
+        self.remove(cycloid_path)
+
+    def animate_motion_along_path(self):
+        """Depicts harmonic oscillation along the cycloidal path"""
+        ### Comparison to a linear spring
+
+        # Parametrizes portion of arc length from center
+        # TODO Make the arc length vary according to a specific function.
+        cycloid_path = self.make_cycloid_path()
+        self.add(cycloid_path)
+
+        start = 0.5
+        arc_length = m.ValueTracker(start)
+
+        # TODO This assumes arc length is positive
+        arc_path = m.VMobject().add_updater(lambda z: z.become(
+            m.ParametricFunction(function=self.param, t_range=(0, 2 * np.arcsin(arc_length.get_value())), stroke_color=m.RED)
+            ))
+        arc_zero_pt = m.Dot(point=self.param(0), radius=0.05, fill_opacity=1.0)
+        arc_end_pt = m.Dot(point=self.param(2 * np.arcsin(start)), radius=0.05, fill_opacity=1.0,)
+        arc_end_pt.add_updater(lambda z: z.move_to(self.param(2 * np.arcsin(arc_length.get_value()))))
+
+        spring_path = m.Line(np.array([-self.l, -1, 0]), np.array([self.l, -1, 0]))
+        segment_path = m.VMobject().add_updater(lambda z: z.become(
+            m.Line(np.array([0, -1, 0]), np.array([self.l * arc_length.get_value(), -1, 0]), stroke_color=m.RED)
+            ))
+        segment_zero_pt = m.Dot(point=np.array([0, -1, 0]), radius=0.05, fill_opacity=1.0,)
+        segment_end_pt = m.Dot(point=np.array([self.l * start, -1, 0]), radius=0.05, fill_opacity=1.0,)
+        segment_end_pt.add_updater(lambda z: z.move_to(np.array([self.l * arc_length.get_value(), -1, 0])))
+
+        tangent_line = m.Line(
+            self.param(2 * np.arcsin(start)),
+            self.param(2 * np.arcsin(start)) + 0.2 * np.array([np.sqrt(1 - start ** 2), start, 0]),
+            stroke_width=2.0, stroke_color=m.BLUE
+            )
+        tangent_line.add_updater(lambda z: z.become(m.Line(
+            self.param(2 * np.arcsin(arc_length.get_value())),
+            self.param(2 * np.arcsin(arc_length.get_value())) + self.r * np.array([np.sqrt(1 - arc_length.get_value() ** 2), arc_length.get_value(), 0]),
+            stroke_width=2.0, stroke_color=m.BLUE
+            )))
+
+        self.play(
+            m.FadeIn(tangent_line), m.FadeIn(arc_path), m.FadeIn(arc_zero_pt), m.FadeIn(arc_end_pt),
+            m.FadeIn(spring_path), m.FadeIn(segment_path), m.FadeIn(segment_zero_pt), m.FadeIn(segment_end_pt),
+            run_time=0.5)
+        self.play(arc_length.animate.set_value(1.0), run_time=1.0)
+
+    def construct(self):
+        self.set_params()
+
+        self.scene_7()
+
+        # self.animate_cycloid_definition()
+
+        # First claim is that along a linear path, the *only* differential equation x'' = f(x)
+        # which gives isochronous motion is f(x) = -C * x
+        
+        # Then deduce that the tangent angle θ is arcsin(s/L), as this gives harmonic oscillation.
+        # Because s'' = sin(θ(s))
+        
+        # self.animate_motion_along_path()
+        
+
 
 if __name__ == "__main__":
     # Dumping ground for new ideas.

@@ -90,12 +90,12 @@ class SmoothClosedPathBezierHandleCalculator:
 
 class ParametrizedHomotopy(m.Animation):
     """
-    A function H: [0, L] x [0, 1] -> R^2.
+    A function H: [tmin, tmax] x [0, 1] -> R^2.
 
     At the time this object is created, the input curve which is being homotoped
     already has a known number of anchors, P_0, P_1, ..., P_N with
     
-    P_i(t) = H(L * i / N, t)
+    P_i(a) = H(tmin + (tmax - tmin) * (i / N), a)
 
     Hence, the Bezier handle functions can themselves be defined, each one as a
     linear functional on these N+1 functions. Each Bezier handle is thus stored
@@ -121,7 +121,7 @@ class ParametrizedHomotopy(m.Animation):
         # TODO See if we can make this creation of anchors a bit more general and controlled
         # by the mobject instead.
         anchors = np.stack(
-            [self.homotopy((mobject.t_max - mobject.t_min) * i / n, t) for i in range(n+1)],
+            [self.homotopy(mobject.t_min + (mobject.t_max - mobject.t_min) * i / n, t) for i in range(n+1)],
             axis=0
             )
         handles = self.calc.get_bezier_handles(anchors)
