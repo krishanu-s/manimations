@@ -33,3 +33,45 @@ def interpolate_vals_2d(
         alpha = x / dx - k
         v = (1 - alpha) * vals[k] + alpha * vals[k + 1]
     return interpolate_vals(v, t_min, dt, t)
+
+def interpolate_vals_3d(
+    vals: np.ndarray,
+    xmin: float, dx: float, x: float,
+    ymin: float, dy: float, y: float,
+    zmin: float, dz: float, z: float,
+):
+    assert len(vals.shape) == 3
+    x -= xmin
+    y -= ymin
+    z -= zmin
+
+    kx = int(x // dx)
+    ky = int(y // dy)
+    kz = int(z // dz)
+
+    a_x = x / dx - kx
+    a_y = y / dy - ky
+    a_z = z / dz - kz
+
+    if a_x == 0:
+        if a_y == 0:
+            if a_z == 0:
+                return vals[kx, ky, kz]
+            else:
+                return (1 - a_z) * vals[kx, ky, kz] + a_z * vals[kx, ky, kz + 1]
+        else:
+            if a_z == 0:
+                return (1 - a_y) * vals[kx, ky, kz] + a_y * vals[kx, ky + 1, kz]
+            else:
+                return (1 - a_y) * (1 - a_z) * vals[kx, ky, kz] + (1 - a_y) * a_z * vals[kx, ky, kz + 1] + a_y * (1 - a_z) * vals[kx, ky + 1, kz] + a_y * a_z * vals[kx, ky + 1, kz + 1]
+    else:
+        if a_y == 0:
+            if a_z == 0:
+                return (1 - a_x) * vals[kx, ky, kz] + a_x * vals[kx + 1, ky, kz]
+            else:
+                return (1 - a_x) * (1 - a_z) * vals[kx, ky, kz] + (1 - a_x) * a_z * vals[kx, ky, kz + 1] + a_x * (1 - a_z) * vals[kx + 1, ky, kz] + a_x * a_z * vals[kx + 1, ky, kz + 1]
+        else:
+            if a_z == 0:
+                return (1 - a_x) * (1 - a_y) * vals[kx, ky, kz] + (1 - a_x) * a_y * vals[kx, ky + 1, kz] + a_x * (1 - a_y) * vals[kx + 1, ky, kz] + a_x * a_y * vals[kx + 1, ky + 1, kz]
+            else:
+                return (1 - a_x) * (1 - a_y) * (1 - a_z) * vals[kx, ky, kz] + (1 - a_x) * a_y * (1 - a_z) * vals[kx, ky + 1, kz] + a_x * (1 - a_y) * (1 - a_z) * vals[kx + 1, ky, kz] + a_x * a_y * (1 - a_z) * vals[kx + 1, ky + 1, kz] + (1 - a_x) * (1 - a_y) * a_z * vals[kx, ky, kz + 1] + (1 - a_x) * a_y * a_z * vals[kx, ky + 1, kz + 1] + a_x * (1 - a_y) * a_z * vals[kx + 1, ky, kz + 1] + a_x * a_y * a_z * vals[kx + 1, ky + 1, kz + 1]
