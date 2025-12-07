@@ -4,6 +4,7 @@ The Laplacian operator.
 
 Random walks"""
 
+import math
 import numpy as np
 import manim as m
 from lib import (
@@ -11,7 +12,8 @@ from lib import (
     AutonomousSecondOrderDiffEqSolver,
     ParametrizedHomotopy,
     interpolate_vals,
-    interpolate_vals_2d
+    interpolate_vals_2d,
+    interpolate_vals_3d
     )
 
 # TODO Figure out how to forward-solve the wave equation in (1+1)-D and (2+1)-D
@@ -114,6 +116,468 @@ class TwoDimFunctionWithBoundary(Function):
     pass
 
 
+class WaveEquation2D(m.ThreeDScene):
+    """
+    Dumping ground for simulating and animating the time-evolution of a function f(x, y, t)
+    according to the differential equation (d/dt)^2 f = ((d/dx)^2 + (d/dy)^2) f, subject
+    to some boundary conditions.
+
+    The key ideas are as follows:
+
+    (1) The function's values (and their time-derivatives) are stored over some rectilinear region of the plane [xmin, xmax] \times [ymin, ymax] as a finite mesh. That is, the state is an array of shape (2, Nx + 1, Ny + 1). The rectilinear region covers the function's domain, and the value on points of the mesh which lie outside of the function domain are assigned a value of 0.
+    (2) The time-evolution at each mesh point proceeds according to several possible rules:
+       (a) If the point lies in the domain and its four neighbors also lie in the domain, compute its Laplacian by finite-difference and use this to do time evolution.
+       (b) If the point lies outside the domain, no time-evolution occurs.
+       (c) If the point lies within the domain but some of its neighbors lie outside the domain, then we have pre-stored the locations of the boundary points nearest to it along the horizontal and vertical grid lines. We compute its Laplacian by a suitable modification of finite-difference in such a way that the zero-th and first-order components in the Taylor series cancel, leaving a result of the form (for the x-direction, for example) d_x^2 f(x, y) + O(dx). Handling these points will be the tricky part of the algorithm.
+       (d) (TODO) If the mesh point is in the near-vicinity of a point source, ...
+
+    Points of type (c) are pre-computed, their corresponding boundary (x, y) points and distances pre-computed, and the required coefficients as well. Handle the computing of d_x^2 and of d_y^2 completely independently, for simplicity.
+
+    The different forms of this problem amount to different shapes of the boundary. We tackle
+    several cases in increasing order of complexity:
+
+    (1) t >= 0, xmin <= x <= xmax, and ymin <= y <= ymax, where f(x, y, 0), f(xmin, y, t), f(xmax, y, t), f(x, ymin, t), and f(x, ymax, t) are given functions. Represents a sheet with rectangular boundary. This is completely analogous to the 1D case.
+
+    (2) Replace the rectilinear constraints in (1) by an arbitrary curve parametrized in some fashion, but where the function is still defined on the (compact) interior of the curve. This involves some innovation in how one stores the function values, as well as how one computes the Laplacian, given the uneven distances from the mesh points to the boundary. Key examples to use: circles and ellipses.
+
+    (3) Extend to handle non-compact domains.
+
+    (4) Add point sources to these cases.
+    """
+    def make_animation(self, result: np.ndarray):
+        # TODO This is the time-limiting part of animation. Find a way to make it more efficient.
+        # E.g., maybe animate in 2D with shading density.
+        xmin, xmax = self.xmin, self.xmax
+        ymin, ymax = self.ymin, self.ymax
+        Nx, Ny = self.Nx, self.Ny
+        total_t, Nt = self.total_t, self.Nt
+
+        dx = (xmax - xmin) / Nx
+        dy = (ymax - ymin) / Ny
+        dt = total_t / Nt
+
+        # Add the initial surface
+        # TODO defining a function which calls directly from the stored arrays.
+        #      The rendering is the main limiting factor.
+        surface = m.Surface(
+            lambda x, y: np.array([x, y, interpolate_vals_2d(result[:, :, 0], xmin, dx, x, ymin, dy, y)]),
+            resolution=(Nx, Ny),
+            u_range=[xmin, xmax],
+            v_range=[ymin, ymax])
+        self.add(surface)
+
+        # Animate its time evolution
+        time = m.ValueTracker(0)
+        surface.add_updater(lambda mobj: mobj.become(
+            m.Surface(
+                lambda x, y: np.array([x, y, 1.0 * interpolate_vals_3d(
+                    result,
+                    xmin, dx, x,
+                    ymin, dy, y,
+                    0, dt, time.get_value()
+                    )]),
+                resolution=(Nx, Ny),
+                u_range=[xmin, xmax],
+                v_range=[ymin, ymax]
+                )
+        ))
+        self.play(time.animate.set_value(total_t), run_time=0.5 * total_t, rate_func=m.linear)
+        
+
+    def circular_compact(self):
+        """Animates a wave with a source at t = 0 and a spatial boundary x^2 + y^2 = 1."""
+
+        xmin, xmax = -1.2, 1.2
+        ymin, ymax = -1.2, 1.2
+        xdiff = xmax - xmin
+        ydiff = ymax - ymin
+
+        # Spatial resolution for f
+        Nx = 50
+        dx = xdiff / Nx
+        Ny = 50
+        dy = ydiff / Ny
+
+        self.xmin, self.xmax = xmin, xmax
+        self.ymin, self.ymax = ymin, ymax
+        self.Nx, self.Ny = Nx, Ny
+
+        # Function value on boundary
+        def f_bdy(p: np.ndarray, t: float):
+            assert p.shape[-1] == 2
+            return np.zeros(p.shape[:-1])
+
+        # Calculate mask for points near to the boundary
+        x_pos_interior_mask = np.zeros((Nx - 1, Ny + 1))
+        x_pos_near_bdy_mask = np.zeros((Nx - 1, Ny + 1, 3))
+        x_neg_interior_mask = np.zeros((Nx - 1, Ny + 1))
+        x_neg_near_bdy_mask = np.zeros((Nx - 1, Ny + 1, 3))
+
+        y_pos_interior_mask = np.zeros((Nx + 1, Ny - 1))
+        y_pos_near_bdy_mask = np.zeros((Nx + 1, Ny - 1, 3))
+        y_neg_interior_mask = np.zeros((Nx + 1, Ny - 1))
+        y_neg_near_bdy_mask = np.zeros((Nx + 1, Ny - 1, 3))
+
+        exterior_mask = np.zeros((Nx + 1, Ny + 1)) # Used for setting f values
+
+        for i, x in enumerate(np.linspace(xmin, xmax, Nx + 1)):
+            for j, y in enumerate(np.linspace(ymin, ymax, Ny + 1)):
+                # Outside domain, mask value is irrelevant
+                if x**2 + y**2 >= 1:
+                    exterior_mask[i, j] = 1
+                    continue
+                
+                # Otherwise, calculate whether (x + dx)^2 + y^2 > 1, (x - dx)^2 + y^2 > 1
+                if i > 0 and i < Nx:
+                    if (x + dx) ** 2 + y ** 2 >= 1:
+                        # find the number 0 < a < 1 such that (x + a * dx)^2 + y^2 == 1
+                        # then would calculate Laplacian using (f(x + a*dx, y) - f(x, y)) / a
+                        a = (math.sqrt(1 - y ** 2) - x) / dx
+                        x_pos_near_bdy_mask[i - 1, j] = np.array([a, math.sqrt(1 - y ** 2), y])
+                    else:
+                        x_pos_interior_mask[i - 1, j] = 1
+
+                    if (x - dx) ** 2 + y ** 2 >= 1:
+                        b = (math.sqrt(1 - y ** 2) + x) / dx
+                        x_neg_near_bdy_mask[i - 1, j] = np.array([b, -math.sqrt(1 - y ** 2), y])
+                    else:
+                        x_neg_interior_mask[i - 1, j] = 1
+                
+                if j > 0 and j < Ny:
+                    if x ** 2 + (y + dy) ** 2 >= 1:
+                        a = (math.sqrt(1 - x ** 2) - y) / dy
+                        y_pos_near_bdy_mask[i, j - 1] = np.array([a, x, math.sqrt(1 - x ** 2)])
+                    else:
+                        y_pos_interior_mask[i, j - 1] = 1
+
+                    if x ** 2 + (y - dy) ** 2 >= 1:
+                        b = (math.sqrt(1 - x ** 2) + y) / dy
+                        y_neg_near_bdy_mask[i, j - 1] = np.array([b, x, -math.sqrt(1 - x ** 2)])
+                    else:
+                        y_neg_interior_mask[i, j - 1] = 1
+        
+        # Input shape (Nx + 1, Ny + 1), output shape (Nx - 1, Ny + 1)
+        def d_x_pos(vals: np.ndarray, t: float):
+            a = x_pos_interior_mask * (vals[2:, :] - vals[1:-1, :])
+            b = x_pos_near_bdy_mask[:, :, 0] * (f_bdy(x_pos_near_bdy_mask[:, :, 1:], t) - vals[1:-1, :])
+            return a + b
+        
+        def d_x_neg(vals: np.ndarray, t: float):
+            a = x_neg_interior_mask * (vals[:-2, :] - vals[1:-1, :])
+            b = x_neg_near_bdy_mask[:, :, 0] * (f_bdy(x_neg_near_bdy_mask[:, :, 1:], t) - vals[1:-1, :])
+            return a + b
+        
+        def d_y_pos(vals: np.ndarray, t: float):
+            a = y_pos_interior_mask * (vals[:, 2:] - vals[:, 1:-1])
+            b = y_pos_near_bdy_mask[:, :, 0] * (f_bdy(y_pos_near_bdy_mask[:, :, 1:], t) - vals[:, 1:-1])
+            return a + b
+        
+        def d_y_neg(vals: np.ndarray, t: float):
+            a = y_neg_interior_mask * (vals[:, :-2] - vals[:, 1:-1])
+            b = y_neg_near_bdy_mask[:, :, 0] * (f_bdy(y_neg_near_bdy_mask[:, :, 1:], t) - vals[:, 1:-1])
+            return a + b
+        
+        # Input shape (Nx + 1, Ny + 1), output shape (Nx - 1, Ny + 1)
+        def l_x(vals: np.ndarray, t: float):
+            return d_x_pos(vals, t) + d_x_neg(vals, t)
+        
+        # Input shape (Nx + 1, Ny + 1), output shape (Nx + 1, Ny - 1)
+        def l_y(vals: np.ndarray, t: float):
+            return d_y_pos(vals, t) + d_y_neg(vals, t)
+        
+        # Input shape (Nx + 1, Ny + 1), output shape (Nx + 1, Ny + 1)
+        def laplacian(vals: np.ndarray, t: float):
+            lx = np.concatenate((np.zeros((1, Ny + 1)), l_x(vals, t), np.zeros((1, Ny + 1))), axis=0)
+            ly = np.concatenate((np.zeros((Nx + 1, 1)), l_y(vals, t), np.zeros((Nx + 1, 1))), axis=1)
+            return lx + ly
+        
+        # TODO This function is designed to set the values at the point sources and at any boundaries which have not already been handled.
+        def add_boundary_values(vals: np.ndarray, t: float):
+            return vals
+        
+        # Temporal resolution on f
+        Nt = 10000
+        total_t = 10.0
+        self.total_t, self.Nt = total_t, Nt
+        dt = total_t / Nt
+
+        # Initial value and its time derivative. Input is shape (..., 2), output is shape (2, ...)
+        k = 1
+        def f0(p: np.ndarray):
+            r = np.linalg.norm(p, axis=-1)
+            mask = (r <= 1)
+            vals = mask * np.exp(-r) * np.cos(r * np.pi * (k + 0.5))
+            return np.stack((vals, np.zeros_like(vals)), axis=0)
+        
+        # Vals_and_df is of shape (2, Nx + 1, Ny + 1), and represents (f(X, Y, t), d_t * f(X, Y, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1], laplacian(vals_and_df[0], t)), axis=0)
+            p1 = add_boundary_values(vals_and_df + (dt / 2) * k1, t + dt/2)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1], laplacian(p1[0], t + dt / 2)), axis=0)
+            p2 = add_boundary_values(vals_and_df + (dt / 2) * k2, t + dt/2)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1], laplacian(p2[0], t + dt / 2)), axis=0)
+            p3 = add_boundary_values(vals_and_df + dt * k3, t + dt)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1], laplacian(p3[0], t + dt)), axis=0)
+            
+            ## Calculate new vals
+            new_vals_and_df = add_boundary_values(vals_and_df + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
+            return new_vals_and_df
+        
+        # Set initial values
+        inputs = np.stack([
+            np.stack([
+                np.array([x, y])
+                for y in np.linspace(ymin, ymax, Ny + 1)], axis=0)
+            for x in np.linspace(xmin, xmax, Nx + 1)], axis=0)
+        vals = f0(inputs)
+        result = [vals[0].copy()]
+
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            result.append(vals[0].copy())
+        
+        result = np.stack(result, axis=-1)
+
+        self.make_animation(result)
+
+    def unbounded_point_source(self):
+        """Animates a wave propagating on an unconstrained plane from a single source at x = y = 0."""
+        
+        xmin, xmax = -5.0, 5.0
+        ymin, ymax = -5.0, 5.0
+        xdiff = xmax - xmin
+        ydiff = ymax - ymin
+
+        # Spatial resolution for f
+        Nx = 20
+        assert Nx % 2 == 0
+        dx = xdiff / Nx
+        Ny = 20
+        assert Ny % 2 == 0
+        dy = ydiff / Ny
+
+        self.xmin, self.xmax = xmin, xmax
+        self.ymin, self.ymax = ymin, ymax
+        self.Nx, self.Ny = Nx, Ny
+
+        # Temporal resolution on f
+        Nt = 10000
+        total_t = 15.0
+        dt = total_t / Nt
+
+        self.total_t, self.Nt = total_t, Nt
+
+        # Initial value and its time derivative
+        def f0(x: float, y: float):
+            return np.array([
+                0,
+                0
+                ])
+        
+        # Value and its time-derivative at the point source
+        # TODO When handling multiple point sources, we will define one of these functions for every point source
+        w = 3.0
+        def fpoint(t: float):
+            return np.array([
+                np.sin(w * t),
+                w * np.cos(w * t)
+            ])
+        
+        # TODO This function is designed to set the values at the point sources and at any boundaries.
+        def add_boundary_values(vals: np.ndarray, t: float):
+            vals[:, Nx // 2, Ny // 2] = fpoint(t)
+            return vals
+        
+        # Vals is of shape (Nx + 1, Ny + 1) and represents f(X, Y, t).
+        # Outputs is of shape (Nx + 1, Ny + 1).
+        # TODO This function is written to handle an open boundary at both xmin and xmax.
+        def l_x(vals: np.ndarray):
+            l = (vals[:-2, :] + vals[2:, :] - 2 * vals[1:-1, :])
+            bdy_min = np.array([2 * l[0] - l[1]])
+            bdy_max = np.array([2 * l[-1] - l[-2]])
+            return np.concatenate((bdy_min, l, bdy_max), axis=0) / (dx ** 2)
+
+
+        # TODO This function is written to handle an open boundary at both ymin and ymax.
+        def l_y(vals: np.ndarray):
+            l = (vals[:, :-2] + vals[:, 2:] - 2 * vals[:, 1:-1])
+            bdy_min = np.expand_dims(2 * l[:, 0] - l[:, 1], axis=1)
+            bdy_max = np.expand_dims(2 * l[:, -1] - l[:, -2], axis=1)
+            return np.concatenate((bdy_min, l, bdy_max), axis=1) / (dy ** 2)
+        
+        def laplacian(vals: np.ndarray):
+            return l_x(vals) + l_y(vals)
+
+        # Vals_and_df is of shape (2, N + 1, N + 1), and represents (f(X, Y, t), d_t * f(X, Y, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1], laplacian(vals_and_df[0])), axis=0)
+            p1 = add_boundary_values(vals_and_df + (dt / 2) * k1, t + dt / 2)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1], laplacian(p1[0])), axis=0)
+            p2 = add_boundary_values(vals_and_df + (dt / 2) * k2, t + dt / 2)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1], laplacian(p2[0])), axis=0)
+            p3 = add_boundary_values(vals_and_df + dt * k3, t + dt)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1], laplacian(p3[0])), axis=0)
+            
+            ## Calculate new vals
+            new_vals_and_df = add_boundary_values(vals_and_df + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
+            return new_vals_and_df
+
+        # Set initial values
+        vals = np.stack(
+            [
+                np.stack([f0(x, y) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
+                for y in np.linspace(ymin, ymax, Ny + 1)
+            ], axis=-1)
+        result = [vals[0].copy()]
+
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            result.append(vals[0].copy())
+        
+        result = np.stack(result, axis=-1)
+
+        self.make_animation(result)
+
+    def rectilinear_compact(self):
+        # Bounds
+        xmin, xmax = 0.0, 1.0
+        ymin, ymax = 0.0, 1.0
+        xdiff = xmax - xmin
+        ydiff = ymax - ymin
+
+        # Number of sample points in each dimension
+        Nx = 20
+        Ny = 20
+        dx = xdiff / Nx
+        dy = ydiff / Ny
+
+        self.xmin, self.xmax = xmin, xmax
+        self.ymin, self.ymax = ymin, ymax
+        self.Nx, self.Ny = Nx, Ny
+
+        # Temporal resolution on f
+        Nt = 1000
+        total_t = 3.0
+        dt = total_t / Nt
+
+        self.total_t, self.Nt = total_t, Nt
+
+        # Initial sheet value and its time derivative
+        def f0(x: float, y: float):
+            return np.array([np.sin(3 * np.pi * x) * np.sin(3 * np.pi * y), 0])
+
+        # Spatial boundaries: values and time derivatives. Used for stacking onto the
+        # laplacian-advanced function values on the domain interior
+        def f_xmin(t: float):
+            # Shape (2, 1, Ny - 1)
+            return np.zeros((2, 1, Ny - 1))
+        def f_xmax(t: float):
+            # Shape (2, 1, Ny - 1)
+            return np.zeros((2, 1, Ny - 1))
+        def f_ymin(t: float):
+            # Shape (2, Nx + 1, 1)
+            return np.zeros((2, Nx + 1, 1))
+        def f_ymax(t: float):
+            # Shape (2, Nx + 1, 1)
+            return np.zeros((2, Nx + 1, 1))
+
+        def add_boundary_values(vals: np.ndarray, t: float):
+            return np.concatenate((
+                f_ymin(t),
+                np.concatenate((f_xmin(t), vals, f_xmax(t),), axis=-2),
+                f_ymax(t),),
+                axis=-1)
+
+        
+        # Vals is of shape (N + 1, N + 1) and represents f(X, Y, t).
+        # Outputs is of shape (N - 1, N - 1)
+        def laplacian(vals: np.ndarray):
+            l_x = (vals[:-2, 1:-1] + vals[2:, 1:-1] - 2 * vals[1:-1, 1:-1]) / (dx ** 2)
+            l_y = (vals[1:-1, :-2] + vals[1:-1, 2:] - 2 * vals[1:-1, 1:-1]) / (dy ** 2)
+            return l_x + l_y
+        
+        # Vals_and_df is of shape (2, N + 1, N + 1), and represents (f(X, Y, t), d_t * f(X, Y, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1, 1:-1, 1:-1], laplacian(vals_and_df[0])), axis=0)
+            p1 = add_boundary_values(vals_and_df[:, 1:-1, 1:-1] + (dt / 2) * k1, t + dt/2)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1, 1:-1, 1:-1], laplacian(p1[0])), axis=0)
+            p2 = add_boundary_values(vals_and_df[:, 1:-1, 1:-1] + (dt / 2) * k2, t + dt/2)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1, 1:-1, 1:-1], laplacian(p2[0])), axis=0)
+            p3 = add_boundary_values(vals_and_df[:, 1:-1, 1:-1] + dt * k3, t + dt)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1, 1:-1, 1:-1], laplacian(p3[0])), axis=0)
+            
+            ## Calculate new vals
+            new_vals_and_df = add_boundary_values(vals_and_df[:, 1:-1, 1:-1] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
+            return new_vals_and_df
+
+        # Set initial values
+        vals = np.stack(
+            [
+                np.stack([f0(x, y) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
+                for y in np.linspace(ymin, ymax, Ny + 1)
+            ], axis=-1)
+        result = [vals[0].copy()]
+
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            result.append(vals[0].copy())
+        
+        result = np.stack(result, axis=-1)
+
+        self.make_animation(result)
+
+    def construct(self):
+        self.set_camera_orientation(phi=45 * m.DEGREES, theta=-30 * m.DEGREES, zoom=1.5)
+        self.circular_compact()
+
+        # self.set_camera_orientation(phi=45 * m.DEGREES, theta=-30 * m.DEGREES, zoom=0.5)
+        # self.unbounded_point_source()
+        # self.rectilinear_compact()
+
+
+
 class WaveEquation1D(m.Scene):
     """
     Dumping ground for simulating and animating the time-evolution of a function f(x, t)
@@ -131,13 +595,12 @@ class WaveEquation1D(m.Scene):
     as solving for f(x, t) on the interior of a region bounded by a 1-D manifold in the plane,
     then the various versions of this problem correspond to different manifold shapes.
 
-    (|_|) t >= 0 and xmin <= x <= xmax, where f(xmin, t), f(xmax, t), and f(x, 0) are given functions.
+    (1) t >= 0 and xmin <= x <= xmax, where f(xmin, t), f(xmax, t), and f(x, 0) are given functions.
         Represents a string controlled at two ends.
 
-    (|_) t >= 0 and x >= xmin, where f(xmin, t) and f(x, 0) are given functions.
+    (2) t >= 0 and x >= xmin, where f(xmin, t) and f(x, 0) are given functions.
         Represents a string controlled at one end and unbounded at the other
     
-    TODO Once these are solved, we will move onto 2D animations.
     """
 
     def single_constrained(self):
@@ -177,7 +640,7 @@ class WaveEquation1D(m.Scene):
             bdy = np.array([2 * l[-1] - l[-2]]) # Estimate laplacian value at the endpoint
             return np.concatenate((l, bdy), axis=0) / (dx ** 2)
         
-        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_x * f(X, t))
+        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_t * f(X, t))
         def step(vals_and_df: np.ndarray, t: float, dt: float):
             # TODO Refactor this
             ## Iteration 1 of RK
@@ -228,7 +691,6 @@ class WaveEquation1D(m.Scene):
         for _ in range(Nt):
             vals = step(vals, t, dt)
             t += dt
-            # print(vals)
             result.append(vals[0].copy())
         
         result = np.stack(result, axis=-1)
@@ -261,21 +723,22 @@ class WaveEquation1D(m.Scene):
         xdiff = xmax - xmin # This quantity occurs enough that we give it a name
 
         # Number of sample points for f
-        Nx = 10
+        Nx = 50
         dx = xdiff / Nx
 
         # Temporal resolution on f
         Nt = 1000
-        total_t = 2.0
+        total_t = 5.0
         dt = total_t / Nt
 
         # Initial string value and its time derivative
-        w = 3 # Integer representing the number of half-wavelengths of the initial wave
+        w = 2 # Integer representing the number of half-wavelengths of the initial wave
         def f0(x: float):
-            return np.array([
-                np.sin(np.pi * w * (x - xmin) / xdiff),
+            fourier_coeffs = [1.0, -0.5]
+            return sum(np.array([
+                coeff * np.sin(np.pi * (w + 1) * (x - xmin) / xdiff),
                 0
-                ])
+                ]) for w, coeff in enumerate(fourier_coeffs))
 
         # Left boundary value and its time derivative
         def fmin(t):
@@ -297,7 +760,7 @@ class WaveEquation1D(m.Scene):
         def laplacian(vals: np.ndarray):
             return (vals[:-2] + vals[2:] - 2 * vals[1:-1]) / (dx ** 2)
 
-        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_x * f(X, t))
+        # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_t * f(X, t))
         def step(vals_and_df: np.ndarray, t: float, dt: float):
             # TODO Refactor this
             ## Iteration 1 of RK
@@ -347,13 +810,11 @@ class WaveEquation1D(m.Scene):
         result = [vals[0].copy()]
 
         # Iterate to get subsequent values
-        # TODO Could do this when building the animation, so that it can be calculated
-        # to frames.
+        # TODO Could do this when building the animation, so that it can be calculated to frames.
         t = 0
         for _ in range(Nt):
             vals = step(vals, t, dt)
             t += dt
-            # print(vals)
             result.append(vals[0].copy())
         
         result = np.stack(result, axis=-1)
@@ -362,7 +823,7 @@ class WaveEquation1D(m.Scene):
         l = 5.0 # Scale of width
         a = 1.0 # Scale of height
         curve = m.ParametricFunction(
-            function=lambda x: (l * x, a * interpolate_vals(result[0], xmin, dx, x), 0),
+            function=lambda x: (l * x, a * interpolate_vals(result[-1], xmin, dx, x), 0),
             t_range=(xmin, xmax, dx)
         )
         self.add(curve)
@@ -376,8 +837,8 @@ class WaveEquation1D(m.Scene):
         self.play(homotopy)
 
     def construct(self):
-        # self.double_constrained()
-        self.single_constrained()
+        self.double_constrained()
+        # self.single_constrained()
 
         # # Define f(0, t), f_t(0, t)
         # def left_bdy(t: float):
