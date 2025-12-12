@@ -19,6 +19,19 @@ from lib import (
 # TODO Figure out how to forward-solve the wave equation in (1+1)-D and (2+1)-D
 # with arbitrary boundary conditions. Numerical stability will be a major hurdle here.
 
+class DotCloudScene(m.Scene):
+    def construct(self):
+        density = 30
+        dots = m.DotCloud(radius=2.0, density=density)
+        self.add(dots)
+
+        time = m.ValueTracker(0)
+        dots.add_updater(lambda mobj: mobj.become(
+            m.DotCloud(radius=2.0 * (1 + time.get_value() / 5), density=density)
+        ))
+
+        self.play(time.animate.increment_value(5), run_time=5.0, rate_func=m.linear)
+
 class Function:
     """Interface for manipulating scalar-valued functions defined on a compact region of
     space - usually rectilinear."""
@@ -144,7 +157,7 @@ class WaveEquation2D(m.ThreeDScene):
 
     (4) Add point sources to these cases.
     """
-    def make_animation(self, result: np.ndarray):
+    def make_animation(self, result: np.ndarray, speed: float = 5.0):
         # TODO This is the time-limiting part of animation. Find a way to make it more efficient.
         # E.g., maybe animate in 2D with shading density.
         xmin, xmax = self.xmin, self.xmax
@@ -155,6 +168,9 @@ class WaveEquation2D(m.ThreeDScene):
         dx = (xmax - xmin) / Nx
         dy = (ymax - ymin) / Ny
         dt = total_t / Nt
+
+        # TODO It's ideal if we can first interpolate the results down to the intended frame-rate / time values.
+        # Another way is to use a 2D gradient field, rather than a m.Surface
 
         # Add the initial surface
         # TODO defining a function which calls directly from the stored arrays.
@@ -181,7 +197,7 @@ class WaveEquation2D(m.ThreeDScene):
                 v_range=[ymin, ymax]
                 )
         ))
-        self.play(time.animate.set_value(total_t), run_time=0.5 * total_t, rate_func=m.linear)
+        self.play(time.animate.set_value(total_t), run_time=(1/speed) * total_t, rate_func=m.linear)
         
 
     def circular_compact(self):
@@ -297,7 +313,7 @@ class WaveEquation2D(m.ThreeDScene):
         
         # Temporal resolution on f
         Nt = 10000
-        total_t = 10.0
+        total_t = 30.0
         self.total_t, self.Nt = total_t, Nt
         dt = total_t / Nt
 
@@ -353,6 +369,131 @@ class WaveEquation2D(m.ThreeDScene):
         result = np.stack(result, axis=-1)
 
         self.make_animation(result)
+    
+    def unbounded_dipole(self):
+        """Animates a wave propagating on an unconstrained plane from a pair of opposing sources at (0, d/2) and (0, -d/2) with respective strengths +a and -a and where the second source is delayed from the first by T = d / c (where c=1)."""
+        d = 0.5
+        a = 4.0 / d
+
+        xmin, xmax = -5.0, 5.0
+        ymin, ymax = -5.0, 5.0
+        xdiff = xmax - xmin
+        ydiff = ymax - ymin
+
+        # Spatial resolution for f
+        Nx = 40
+        assert Nx % 2 == 0
+        dx = xdiff / Nx
+        Ny = 40
+        assert Ny % 2 == 0
+        dy = ydiff / Ny
+
+        # Dipole check condition
+        ind = (d / 2) / (ydiff / Ny)
+        assert math.isclose(ind, int(ind))
+        ind = int(ind)
+
+        self.xmin, self.xmax = xmin, xmax
+        self.ymin, self.ymax = ymin, ymax
+        self.Nx, self.Ny = Nx, Ny
+
+        # Temporal resolution on f
+        Nt = 10000
+        total_t = 15.0
+        dt = total_t / Nt
+
+        self.total_t, self.Nt = total_t, Nt
+
+        # Initial value and its time derivative
+        def f0(x: float, y: float):
+            return np.array([
+                0,
+                0
+                ])
+        
+        # Value and its time-derivative at the two point sources
+        w = 3.0
+        def fpos(t: float):
+            return a * np.array([
+                np.sin(w * t),
+                w * np.cos(w * t)
+            ])
+        def fneg(t: float):
+            return -a * np.array([
+                np.sin(w * (t - d)),
+                w * np.cos(w * (t - d))
+            ])
+        
+        # TODO This function is designed to set the values at the point sources and at any boundaries.
+        def add_boundary_values(vals: np.ndarray, t: float):
+            vals[:, Nx // 2, ind + Ny // 2] = fpos(t)
+            vals[:, Nx // 2, -ind + Ny // 2] = fneg(t)
+            return vals
+        
+        # Vals is of shape (Nx + 1, Ny + 1) and represents f(X, Y, t).
+        # Outputs is of shape (Nx + 1, Ny + 1).
+        # TODO This function is written to handle an open boundary at both xmin and xmax.
+        def l_x(vals: np.ndarray):
+            l = (vals[:-2, :] + vals[2:, :] - 2 * vals[1:-1, :])
+            bdy_min = np.array([2 * l[0] - l[1]])
+            bdy_max = np.array([2 * l[-1] - l[-2]])
+            return np.concatenate((bdy_min, l, bdy_max), axis=0) / (dx ** 2)
+
+
+        # TODO This function is written to handle an open boundary at both ymin and ymax.
+        def l_y(vals: np.ndarray):
+            l = (vals[:, :-2] + vals[:, 2:] - 2 * vals[:, 1:-1])
+            bdy_min = np.expand_dims(2 * l[:, 0] - l[:, 1], axis=1)
+            bdy_max = np.expand_dims(2 * l[:, -1] - l[:, -2], axis=1)
+            return np.concatenate((bdy_min, l, bdy_max), axis=1) / (dy ** 2)
+        
+        def laplacian(vals: np.ndarray):
+            return l_x(vals) + l_y(vals)
+
+        # Vals_and_df is of shape (2, N + 1, N + 1), and represents (f(X, Y, t), d_t * f(X, Y, t))
+        def step(vals_and_df: np.ndarray, t: float, dt: float):
+            # TODO Refactor this
+            ## Iteration 1 of RK
+
+            # Derivative of vector
+            k1 = np.stack((vals_and_df[1], laplacian(vals_and_df[0])), axis=0)
+            p1 = add_boundary_values(vals_and_df + (dt / 2) * k1, t + dt / 2)
+
+            ## Iteration 2 of RK
+            k2 = np.stack((p1[1], laplacian(p1[0])), axis=0)
+            p2 = add_boundary_values(vals_and_df + (dt / 2) * k2, t + dt / 2)
+
+            ## Iteration 3 of RK
+            k3 = np.stack((p2[1], laplacian(p2[0])), axis=0)
+            p3 = add_boundary_values(vals_and_df + dt * k3, t + dt)
+
+            ## Iteration 4 of RK
+            k4 = np.stack((p3[1], laplacian(p3[0])), axis=0)
+            
+            ## Calculate new vals
+            new_vals_and_df = add_boundary_values(vals_and_df + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
+            return new_vals_and_df
+
+        # Set initial values
+        vals = np.stack(
+            [
+                np.stack([f0(x, y) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
+                for y in np.linspace(ymin, ymax, Ny + 1)
+            ], axis=-1)
+        result = [vals[0].copy()]
+
+        # Iterate to get subsequent values
+        # TODO Could do this when building the animation, so that it can be calculated to frames.
+        t = 0
+        for _ in range(Nt):
+            vals = step(vals, t, dt)
+            t += dt
+            result.append(vals[0].copy())
+        
+        result = np.stack(result, axis=-1)
+
+        self.make_animation(result)
+
 
     def unbounded_point_source(self):
         """Animates a wave propagating on an unconstrained plane from a single source at x = y = 0."""
@@ -363,10 +504,10 @@ class WaveEquation2D(m.ThreeDScene):
         ydiff = ymax - ymin
 
         # Spatial resolution for f
-        Nx = 20
+        Nx = 40
         assert Nx % 2 == 0
         dx = xdiff / Nx
-        Ny = 20
+        Ny = 40
         assert Ny % 2 == 0
         dy = ydiff / Ny
 
@@ -494,10 +635,8 @@ class WaveEquation2D(m.ThreeDScene):
         def f0(x: float, y: float):
             return np.array([np.sin(3 * np.pi * x) * np.sin(3 * np.pi * y), 0])
 
-        # Spatial boundaries: values and time derivatives. Used for stacking onto the
-        # laplacian-advanced function values on the domain interior
+        # Spatial boundaries: values and time derivatives. Used for stacking onto the laplacian-advanced function values on the domain interior
         def f_xmin(t: float):
-            # Shape (2, 1, Ny - 1)
             return np.zeros((2, 1, Ny - 1))
         def f_xmax(t: float):
             # Shape (2, 1, Ny - 1)
@@ -569,11 +708,13 @@ class WaveEquation2D(m.ThreeDScene):
         self.make_animation(result)
 
     def construct(self):
-        self.set_camera_orientation(phi=45 * m.DEGREES, theta=-30 * m.DEGREES, zoom=1.5)
-        self.circular_compact()
+        # self.set_camera_orientation(phi=45 * m.DEGREES, theta=-30 * m.DEGREES, zoom=1.)
+        self.set_camera_orientation(phi=0, theta=0, zoom=0.75)
+        # self.circular_compact()
 
         # self.set_camera_orientation(phi=45 * m.DEGREES, theta=-30 * m.DEGREES, zoom=0.5)
         # self.unbounded_point_source()
+        self.unbounded_dipole()
         # self.rectilinear_compact()
 
 
@@ -640,6 +781,9 @@ class WaveEquation1D(m.Scene):
             bdy = np.array([2 * l[-1] - l[-2]]) # Estimate laplacian value at the endpoint
             return np.concatenate((l, bdy), axis=0) / (dx ** 2)
         
+        def add_boundary_values(vals: np.ndarray, t: float):
+            return np.concatenate((fmin(t), vals), axis=-1)
+        
         # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_t * f(X, t))
         def step(vals_and_df: np.ndarray, t: float, dt: float):
             # TODO Refactor this
@@ -651,42 +795,28 @@ class WaveEquation1D(m.Scene):
             # Step forward to f(x, t + dt/2) via the derivative
             # Step forward to d_x * f(x, t + dt/2) via the Laplacian
             # Append on boundary values
-            p1 = np.concatenate((
-                fmin(t + dt/2),
-                vals_and_df[:, 1:] + (dt / 2) * k1,
-            ), axis=-1)
+            p1 = add_boundary_values(vals_and_df[:, 1:] + (dt / 2) * k1, t + dt / 2)
 
             ## Iteration 2 of RK
             k2 = np.stack((p1[1, 1:], laplacian(p1[0])), axis=0)
-            p2 = np.concatenate((
-                fmin(t + dt/2),
-                vals_and_df[:, 1:] + (dt / 2) * k2,
-            ), axis=-1)
+            p2 = add_boundary_values(vals_and_df[:, 1:] + (dt / 2) * k2, t + dt / 2)
 
             ## Iteration 3 of RK
             k3 = np.stack((p2[1, 1:], laplacian(p2[0])), axis=0)
-            p3 = np.concatenate((
-                fmin(t + dt),
-                vals_and_df[:, 1:] + dt * k3,
-            ), axis=-1)
+            p3 = add_boundary_values(vals_and_df[:, 1:] + dt * k2, t + dt)
 
             ## Iteration 4 of RK
             k4 = np.stack((p3[1, 1:], laplacian(p3[0])), axis=0)
             
             ## Calculate new vals
-            new_vals_and_df = np.concatenate((
-                fmin(t + dt),
-                vals_and_df[:, 1:] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4),
-            ), axis=-1)
+            new_vals_and_df = add_boundary_values(vals_and_df[:, 1:] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
             return new_vals_and_df
         
         # Set initial values
         vals = np.stack([f0(x) for x in np.linspace(xmin, xmax, Nx + 1)], axis=-1)
         result = [vals[0].copy()]
 
-        # Iterate to get subsequent values
-        # TODO Could do this when building the animation, so that it can be calculated
-        # to frames.
+        # Iterate to get subsequent values to frames.
         t = 0
         for _ in range(Nt):
             vals = step(vals, t, dt)
@@ -696,43 +826,30 @@ class WaveEquation1D(m.Scene):
         result = np.stack(result, axis=-1)
 
         # Make animation
-        l = 2.0 # Scale of width
-        a = 0.5 # Scale of height
-        offset = np.array([-5.0, 0.0, 0.0])
-        curve = m.ParametricFunction(
-
-            function=lambda x: offset + np.array([l * x, a * interpolate_vals(result[0], xmin, dx, x), 0]),
-            t_range=(xmin, xmax, dx)
-        )
-        self.add(curve)
-
-        homotopy = ParametrizedHomotopy(
-            homotopy=lambda x, t: offset + np.array([l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / Nt, t), 0]),
-            mobject=curve,
-            rate_func=m.linear,
-            run_time = total_t,
-        )
-        # TODO Animate movement of bob as well
-        # TODO Make this controlled by a ValueTracker
-        self.play(homotopy)
-
+        self.make_animation(result, l=2.0, a=0.5)
+    
     def double_constrained(self):
         """String constrained/controlled at two endpoints."""
-        xmin = 0.0
-        xmax = 1.0
-        xdiff = xmax - xmin # This quantity occurs enough that we give it a name
+        # Set all params
+        self.xmin, self.xmax = 0.0, 1.0
+        self.Nx = 50
+        self.Nt = 1000
+        self.total_t = 5.0
+
+        # Spatial bounds for f
+        xmin, xmax = self.xmin, self.xmax
+        xdiff = xmax - xmin
 
         # Number of sample points for f
-        Nx = 50
+        Nx = self.Nx
         dx = xdiff / Nx
 
         # Temporal resolution on f
-        Nt = 1000
-        total_t = 5.0
+        Nt = self.Nt
+        total_t = self.total_t
         dt = total_t / Nt
 
         # Initial string value and its time derivative
-        w = 2 # Integer representing the number of half-wavelengths of the initial wave
         def f0(x: float):
             fourier_coeffs = [1.0, -0.5]
             return sum(np.array([
@@ -749,16 +866,16 @@ class WaveEquation1D(m.Scene):
         
         # Right boundary value and its time derivative
         def fmax(t):
-            return np.array([
-                [0],
-                [0]
-            ])
+            return np.array([[0], [0]])
 
-        
+
         # Vals is of shape (N + 1,), and represents f(X, t).
         # Output is of shape (N - 1,)
         def laplacian(vals: np.ndarray):
             return (vals[:-2] + vals[2:] - 2 * vals[1:-1]) / (dx ** 2)
+
+        def add_boundary_values(vals: np.ndarray, t: float):
+            return np.concatenate((fmin(t), vals, fmax(t)), axis=-1)
 
         # Vals_and_df is of shape (2, N + 1), and represents (f(X, t), d_t * f(X, t))
         def step(vals_and_df: np.ndarray, t: float, dt: float):
@@ -771,37 +888,22 @@ class WaveEquation1D(m.Scene):
             # Step forward to f(x, t + dt/2) via the derivative
             # Step forward to d_x * f(x, t + dt/2) via the Laplacian
             # Append on boundary values
-            p1 = np.concatenate((
-                fmin(t + dt/2),
-                vals_and_df[:, 1:-1] + (dt / 2) * k1,
-                fmax(t + dt/2),
-            ), axis=-1)
+            p1 = add_boundary_values(vals_and_df[:, 1:-1] + (dt / 2) * k1, t + dt / 2)
 
             ## Iteration 2 of RK
             k2 = np.stack((p1[1, 1:-1], laplacian(p1[0])), axis=0)
-            p2 = np.concatenate((
-                fmin(t + dt/2),
-                vals_and_df[:, 1:-1] + (dt / 2) * k2,
-                fmax(t + dt/2),
-            ), axis=-1)
+            p2 = add_boundary_values(p1[:, 1:-1] + (dt / 2) * k2, t + dt / 2)
 
             ## Iteration 3 of RK
             k3 = np.stack((p2[1, 1:-1], laplacian(p2[0])), axis=0)
-            p3 = np.concatenate((
-                fmin(t + dt),
-                vals_and_df[:, 1:-1] + dt * k3,
-                fmax(t + dt),
-            ), axis=-1)
+            p3 = add_boundary_values(p2[:, 1:-1] + dt * k2, t + dt)
 
             ## Iteration 4 of RK
             k4 = np.stack((p3[1, 1:-1], laplacian(p3[0])), axis=0)
             
             ## Calculate new vals
-            new_vals_and_df = np.concatenate((
-                fmin(t + dt),
-                vals_and_df[:, 1:-1] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4),
-                fmax(t + dt),
-            ), axis=-1)
+            new_vals_and_df = add_boundary_values(vals_and_df[:, 1:-1] + (dt / 6) * (k1 + 2*k2 + 2*k3 + k4), t + dt)
+
             return new_vals_and_df
 
 
@@ -820,10 +922,25 @@ class WaveEquation1D(m.Scene):
         result = np.stack(result, axis=-1)
 
         # Make animation
-        l = 5.0 # Scale of width
-        a = 1.0 # Scale of height
+        self.make_animation(result, l=5.0, a=1.0)
+
+    def make_animation(
+        self,
+        result: np.ndarray,
+        l: float = 5.0, # Scale of width
+        a: float = 1.0, # Scale of amplitude
+        ):
+        """Animates the vibrating string."""
+        # TODO could make this controlled by a ValueTracker.
+        xmin, xmax = self.xmin, self.xmax
+        Nx = self.Nx
+        dx = (xmax - xmin) / Nx
+
+        total_t = self.total_t
+        Nt = self.Nt
+        # Make animation
         curve = m.ParametricFunction(
-            function=lambda x: (l * x, a * interpolate_vals(result[-1], xmin, dx, x), 0),
+            function=lambda x: (l * x, a * interpolate_vals(result[0], xmin, dx, x), 0),
             t_range=(xmin, xmax, dx)
         )
         self.add(curve)
@@ -839,58 +956,6 @@ class WaveEquation1D(m.Scene):
     def construct(self):
         self.double_constrained()
         # self.single_constrained()
-
-        # # Define f(0, t), f_t(0, t)
-        # def left_bdy(t: float):
-        #     return np.array([np.sin(t), np.cos(t)])
-        
-        # # Set initial values
-        # num_steps = 10
-        # xmin = 0
-        # xmax = 1
-        # dx = (xmax - xmin) / num_steps
-        # init_vals = np.concatenate(
-        #     (np.expand_dims(left_bdy(0), -1), np.zeros((2, num_steps))),
-        #     axis=-1)
-
-        # def laplacian(arr: np.ndarray):
-        #     result = (arr[2:] + arr[:-2] - 2 * arr[1:-1]) / (dx ** 2)
-        #     return np.concatenate((np.array([0]), result, np.array([result[-1]])), axis=0)
-        
-        # solver = AutonomousSecondOrderDiffEqSolver(
-        #     t0=0,
-        #     x0=init_vals[0],
-        #     v0=init_vals[1],
-        #     f=lambda arr: laplacian(arr[0]))
-        
-        # result = [init_vals[0].copy()]
-        # run_time = 5.0
-        # num_iters = 5000
-        # dt = run_time / num_iters
-        # assert dt < dx ** 2, "Must set a smaller time-step value for numerical stability."
-        # for _ in range(num_iters):
-        #     solver.step(dt)
-        #     solver.val[:, 0] = left_bdy(solver.t)
-        #     result.append(solver.val[0].copy())
-            
-        # result = np.stack(result, axis=-1)
-
-        # # Make animation
-        # l = 5.0 # Scale of width
-        # a = 1.0 # Scale of height
-        # curve = m.ParametricFunction(
-        #     function=lambda x: (l * x, a * interpolate_vals(result[0], xmin, dx, x), 0),
-        #     t_range=(xmin, xmax, dx)
-        # )
-        # self.add(curve)
-
-        # homotopy = ParametrizedHomotopy(
-        #     homotopy=lambda x, t: (l * x, a * interpolate_vals_2d(result, xmin, dx, x, 0, 1 / num_iters, t), 0),
-        #     mobject=curve,
-        #     rate_func=m.linear,
-        #     run_time = run_time,
-        # )
-        # self.play(homotopy)
 
 
 class OneDimHeatEquationScene(m.Scene):
