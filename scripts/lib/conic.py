@@ -78,6 +78,11 @@ class PolarConicEquation:
                 z=1
             )
 
+    def param(self, t: float) -> np.ndarray:
+        """Parametrization in polar coordinates."""
+        radius = self.c / (1 + self.e * np.cos(t))
+        return radius * np.ndarray([np.cos(t - self.theta_0), np.sin(t - self.theta_0), 0]) + np.array([self.focus.x, self.focus.y, 0])
+
     def bounds(self) -> BoundsFn:
         """Returns a function which takes radii r as input, and outputs the minimum and
         maximum values of theta on the arc at distance r from the focus and in the same
