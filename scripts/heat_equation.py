@@ -494,7 +494,6 @@ class WaveEquation2D(m.ThreeDScene):
 
         self.make_animation(result)
 
-
     def unbounded_point_source(self):
         """Animates a wave propagating on an unconstrained plane from a single source at x = y = 0."""
         

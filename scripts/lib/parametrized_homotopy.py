@@ -8,6 +8,8 @@ import numpy as np
 import manim as m
 
 
+# TODO Move these into their own file called "bezier_utils.py"
+
 class SmoothOpenPathBezierHandleCalculator:
     n: int
     below_diag: np.ndarray
@@ -39,7 +41,6 @@ class SmoothOpenPathBezierHandleCalculator:
         # n-by-(n+1) matrix
         self.result = np.zeros(shape=(n, n+1))
         self.result[0, 0], self.result[0, 1] = 1, 2
-        self.result[n-1, n-1], self.result[n-1, n] = 8, 1
         for i in range(1, n-1):
             self.result[i, i], self.result[i, i+1] = 4, 2
         self.result[n-1, n-1], self.result[n-1, n] = 8, 1
@@ -83,10 +84,148 @@ class SmoothOpenPathBezierHandleCalculator:
         handles[::2] = H1
         handles[1::2] = H2
         return handles
+    
+    def get_smooth_global_bezier_function(self, anchors: np.ndarray) -> Callable[[float], np.ndarray]:
+        """TODO Similar to the function for SmoothClosedPathBezierHandleCalculator"""
+        raise NotImplementedError
 
 class SmoothClosedPathBezierHandleCalculator:
-    """Should be the same as SmoothOpenPathBezierHandleCalculator but for close loops."""
-    pass
+    """The same as SmoothOpenPathBezierHandleCalculator but for closed loops."""
+    def __init__(self, n: int):
+        """
+        Calculates and stores the n-by-(n+1) transformation matrix used for computing
+        the first Bezier handles of a sequence of n+1 anchor points, as a function of
+        the n+1 anchor points. This is computed as A^{-1}B, where A is an n-by-n
+        tridiagonal matrix and B is an n-by-(n+1) matrix."""
+        self.n = n
+
+        # Tridiagonal matrix which is to be inverted
+        below_diag = np.array([1.]*(n-1)) # Below diagonal
+        diag = np.array([3.] + [4.]*(n-2) + [3.]) # Main diagonal
+        above_diag = np.array([1.]*(n-1)) # Above diagonal
+
+        # n-by-(n+1) matrix to be computed
+        self.result = np.zeros(shape=(n, n+1))
+        for i in range(n):
+            self.result[i, i], self.result[i, i+1] = 4, 2
+
+        # Computation of q, described in extra step below
+        v = np.array([1.] + [0.] * (n-2) + [1.])
+        q = np.array([1.] + [0.] * (n-2) + [1.])
+        
+        # Eliminate lower-triangular entries in tridiagonal matrix
+        for i in range(n-1):
+            scale = below_diag[i] / diag[i]
+            diag[i+1] -= above_diag[i] * scale
+            self.result[i+1] -= self.result[i] * scale
+            q[i+1] -= q[i] * scale
+
+
+        # Eliminate upper-triangular entries in tridiagonal matrix
+        for i in range(n-2, -1, -1):
+            scale = above_diag[i] / diag[i+1]
+            self.result[i] -= self.result[i+1] * scale
+            q[i] -= q[i+1] * scale
+            
+        # Normalize by diagonal entries in tridiagonal matrix
+        for i in range(n):
+            scale = 1 / diag[i]
+            self.result[i] *= scale
+            q[i] *= scale
+
+        # Extra step: left-multiply the result by (I + qv^t)^{-1} = I - \frac{1}{1 + v^tq} qv^t, where v = [1 0 0 ... 0 1] and q = T^{-1}v
+        m = np.eye(n) - (1 / (1 + np.dot(v, q))) * np.outer(q, v)
+        self.result = np.matmul(m, self.result)
+
+    def get_bezier_handles(self, anchors: np.ndarray,) -> np.ndarray:
+        """Given a sequence of n anchors, produces the corresponding handles,
+        using the pre-computed transformation matrix."""
+        if anchors.shape[0] == self.n:
+            A = np.concatenate((anchors, np.expand_dims(anchors[0], axis=0)), axis=0)
+        elif anchors.shape[0] == self.n + 1:
+            assert np.allclose(anchors[0], anchors[-1])
+            A = anchors
+        else:
+            raise NotImplementedError("Wrong number of anchors")
+        H1 = np.matmul(self.result, A)
+
+        H2 = np.zeros(shape=(self.n, *A.shape[1:]))
+        H2[0 : self.n - 1] = 2 * A[1:self.n] - H1[1:self.n]
+        H2[self.n - 1] = 2 * A[0] - H1[0]
+
+        handles = np.empty(shape=(2*self.n, *A.shape[1:]))
+        handles[::2] = H1
+        handles[1::2] = H2
+        return handles
+    
+    def get_anchors_and_handles(self, anchors: np.ndarray) -> np.ndarray:
+        assert len(anchors.shape) == 2
+        if anchors.shape[0] == self.n:
+            A = np.concatenate((anchors, np.expand_dims(anchors[0], axis=0)), axis=0)
+        elif anchors.shape[0] == self.n + 1:
+            assert np.allclose(anchors[0], anchors[-1])
+            A = anchors
+        else:
+            raise NotImplementedError("Wrong number of anchors")
+
+
+        # Generate the Bezier handles H_1, H_2, ... and stack into an array of shape (4, N, 3)
+        # [P_0, H_1, H_2, P_1]
+        # [P_1, H_3, H_4, P_2]
+        # [P_2, H_5, H_6, P_3]
+        # [...]
+        handles = self.get_bezier_handles(A)
+        anchors_and_handles = np.zeros((4, self.n, 3))
+        anchors_and_handles[0, :, :] = A[:-1]
+        anchors_and_handles[1, :, :] = handles[::2]
+        anchors_and_handles[2, :, :] = handles[1::2]
+        anchors_and_handles[3, :, :] = A[1:]
+
+        return anchors_and_handles
+
+
+    def get_smooth_global_bezier_function(self, anchors: np.ndarray) -> Callable[[float], np.ndarray]:
+        """Given n points P_0, P_1, ..., P_{N-1} in the plane, draws a smooth closed Bezier curve through them.
+        Outputs the function f: [0, 1] -> R^2 which outputs this curve such that f(k / N) = P_k."""
+        anchors_and_handles = self.get_anchors_and_handles(anchors)
+
+        # Given all of the anchors and handles for the closed curve, defines the global Bezier function f: [0, 1] -> R^3.
+        # along with its tangent vector
+        # This is similar to the function m.bezier.bezier in the cubic case.
+        def global_bezier(a: float) -> float:
+            k = (int(a * self.n)) % self.n
+            t = (a * self.n) % 1
+
+            p = anchors_and_handles[0, k, :]
+            h1 = anchors_and_handles[1, k, :]
+            h2 = anchors_and_handles[2, k, :]
+            q = anchors_and_handles[3, k, :]
+
+            t2 = t * t
+            t3 = t2 * t
+            mt = 1 - t
+            mt2 = mt * mt
+            mt3 = mt2 * mt
+
+            return mt3 * p + 3 * t * mt2 * h1 + 3 * t2 * mt * h2 + t3 * q
+        
+        def global_bezier_derivative(a: float) -> float:
+            k = (int(a * self.n)) % self.n
+            t = (a * self.n) % 1
+
+            p = anchors_and_handles[0, k, :]
+            h1 = anchors_and_handles[1, k, :]
+            h2 = anchors_and_handles[2, k, :]
+            q = anchors_and_handles[3, k, :]
+
+            t2 = t * t
+            mt = 1 - t
+            mt2 = mt * mt
+
+            return (3 * (-mt2) * p + 3 * (mt2 - 2 * t * mt) * h1 + 3 * (2 * t * mt - t2) * h2 + 3 * t2 * q) * self.n
+            
+        
+        return global_bezier, global_bezier_derivative
 
 class ParametrizedHomotopy(m.Animation):
     """

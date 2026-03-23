@@ -7,6 +7,6 @@ from .envelope import ArcEnvelope, SegmentEnvelope
 from .symphony import Symphony, Sequence, AnimationEvent, Add, Remove
 from .trail import RayObject, make_trail, animate_trajectory
 from .tolerances import ROOT_TOLERANCE, MAX_ROOT, COEFF_TOLERANCE, RADIUS_TOLERANCE, ANGLE_TOLERANCE
-from .parametrized_homotopy import ParametrizedHomotopy
+from .parametrized_homotopy import ParametrizedHomotopy, SmoothClosedPathBezierHandleCalculator, SmoothOpenPathBezierHandleCalculator
 from .diffeq import RungeKutta2, AutonomousSecondOrderDiffEqSolver, AutonomousFirstOrderDiffEqSolver
 from .interpolation import interpolate_vals, interpolate_vals_2d, interpolate_vals_3d
