@@ -1,6 +1,9 @@
 # Dumping ground for new ideas: particularly the most challenging animations which will make their
 # way into other files.
 
+import math
+from typing import Callable
+
 import manimlib as m
 import numpy as np
 
@@ -169,14 +172,84 @@ class JInvariant(m.Scene):
         pass
 
 
-class ControlledNumber(m.DecimalNumber):
-    """A decimal number controlled by a value tracker"""
+class VectorTracker(m.Mobject):
+    """Stores a vector with real entries, where the individual entries act as value trackers."""
 
-    tracker: m.ValueTracker
+    value_type: type = np.float64
 
-    def __init__(self, tracker: m.ValueTracker, **kwargs):
-        self.tracker = tracker
+    def __init__(self, dim: int, **kwargs):
+        self.dim = dim
+        self.vector = np.zeros((dim,), dtype=self.value_type)
         super().__init__(**kwargs)
+
+    def init_uniforms(self) -> None:
+        super().init_uniforms()
+        self.uniforms["vector"] = self.vector.copy()
+
+    def get_vector(self) -> np.ndarray:
+        return self.uniforms["vector"]
+
+    def set_vector(self, vector: np.ndarray):
+        self.uniforms["vector"] = vector
+        return self
+
+    def get_value(self, i: int):
+        return self.uniforms["vector"][i]
+
+    def set_value(self, i: int, val: float):
+        self.uniforms["vector"][i] = val
+        return self
+
+    def slide_value(self, i: int, val: float | complex):
+        """Continuously changes a single entry of the matrix. This is the result which *should* be produced by
+        self.animate.set_value(i, j, val), but is not because that method doesn't recompute the eigenvals/vecs
+        at all intermediate steps."""
+        self.clear_updaters()
+        init_val = self.get_value(i)
+        v = m.ValueTracker(0)
+        self.add_updater(
+            lambda mobj: mobj.set_value(i, init_val + (val - init_val) * v.get_value())
+        )
+        return v.animate.set_value(1.0)
+
+    def slide_vector(self, vec: np.ndarray):
+        """Continuously vary the entire vector in a linear fashion towards the given target vector."""
+        self.clear_updaters()
+        init_vec = self.get_vector()
+
+        tracker = m.ValueTracker(0)
+        self.add_updater(
+            lambda mobj: mobj.set_vector(
+                init_vec + (vec - init_vec) * tracker.get_value()
+            )
+        )
+        return tracker.animate.set_value(1.0)
+
+    def rotate_vector(self, vec: np.ndarray):
+        """Assumes the current, and final vectors are both normalized.
+        Continuously vary the vector along a great circle towards the given target vector."""
+        self.clear_updaters()
+        vec /= np.linalg.norm(vec)
+        init_vec = self.get_vector()
+        init_vec *= 1 / np.linalg.norm(init_vec)
+
+        # rotation_axis = np.cross(init_vec, vec)
+        # rotation_axis /= np.linalg.norm(rotation_axis)
+        angle = math.acos(init_vec.dot(vec))
+
+        v = m.ValueTracker(0)
+        self.add_updater(
+            lambda mobj: mobj.set_vector(
+                init_vec
+                + (vec - init_vec)
+                * (
+                    0.5
+                    * np.sin(angle * v.get_value())
+                    / (np.sin(0.5 * angle) * np.cos(angle * (v.get_value() - 0.5)))
+                )
+            )
+        )
+        return v.animate.set_value(1.0)
 
 
 class MatrixTracker(m.Mobject):
@@ -223,6 +296,9 @@ class MatrixTracker(m.Mobject):
         self._recompute_eig()
         return self
 
+    def get_column(self, i: int) -> np.ndarray:
+        return self.uniforms["matrix"][i :: self.dim]
+
     def get_all_eigenvalues(self):
         """Returns a shape (D,) array containing the eigenvalues."""
         return self.eigenvals
@@ -263,10 +339,25 @@ class MatrixTracker(m.Mobject):
         )
         return v.animate.set_value(1.0)
 
+    def slide_matrix(self, mat: np.ndarray):
+        """Continuously vary the entire matrix in a linear fashion towards the given target matrix."""
+        self.clear_updaters()
+        init_mat = self.get_matrix()
+
+        v = m.ValueTracker(0)
+        self.add_updater(
+            lambda mobj: mobj.set_matrix(init_mat + (mat - init_mat) * v.get_value())
+        )
+        return v.animate.set_value(1.0)
+
     def increment_value(self, i: int, j: int, d_value: float | complex) -> None:
         self.set_value(i, j, self.get_value(i, j) + d_value)
         self._recompute_eig_local()
         return self
+
+    def matmul(self, vec: np.ndarray):
+        """Multiplies by an input vector v."""
+        return np.matmul(self.get_matrix(), vec)
 
     def inner_product(self, vec: np.ndarray):
         """Uses this matrix A to compute the inner product <v, Av>."""
@@ -310,6 +401,44 @@ class SymmetricMatrixTracker(MatrixTracker):
         return self._recompute_eig()
 
 
+def balanced_sigmoid(x):
+    return (2 / (1 + np.exp(-x))) - 1
+
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
+
+
+class RadialFn(m.Sphere):
+    """Depicting a real-valued function on the sphere as a surface where each point on the unit sphere is
+    extended outwards (for positive values) or inwards (for negative values) using a sigmoid function"""
+
+    def __init__(self, f: Callable[[np.ndarray], float], axes: m.ThreeDAxes, **kwargs):
+        self.f = f
+        self.axes = axes
+        super().__init__(**kwargs)
+
+    def set_f(self, f):
+        self.f = f
+        self.init_points()
+
+    def uv_func(self, u: float, v: float) -> np.ndarray:
+        sign = -1 if self.clockwise else +1
+        unit_vec = np.array(
+            [
+                math.cos(sign * u) * math.sin(v),
+                math.sin(sign * u) * math.sin(v),
+                -math.cos(v),
+            ]
+        )
+        return self.axes.c2p(*(sigmoid(self.f(unit_vec)) * self.radius * unit_vec))
+
+
+def make_random_symmetric_matrix(dim: int):
+    x = np.random.randn(dim, dim)
+    return x + x.T
+
+
 class LinAlgMatrix(m.Scene):
     """We can allow the parameters of a linear transformation to be controlled by ValueTrackers.
     What I want is an efficient way to vary e.g. the eigenvalues and eigenvectors, without having
@@ -337,70 +466,193 @@ class LinAlgMatrix(m.Scene):
 
         ## 3D visualization
         three_d_vis = m.Group()
-        t_axes = m.ThreeDAxes((-2, 2), (-2, 2), (-2, 2))
+
+        # Axes on which everything will be placed
+        t_axes = m.ThreeDAxes(
+            (-2, 2),
+            (-2, 2),
+            (-2, 2),
+            axis_config={"include_ticks": False, "include_tip": True},
+        )
         three_d_vis.add(t_axes)
 
-        # Heatmap of function values
-        heatmap = m.SphereHeatMap(radius=1.0).move_to(t_axes.c2p(0, 0, 0))
-        heatmap.init_heatmap(m.HeatMapType.REAL)
-
-        def heatmap_fn(arr: np.ndarray):
-            return np.apply_along_axis(
-                lambda p: mat.inner_product(heatmap.uv_func(*p)),
-                axis=-1,
-                arr=arr,
+        def add_column_vectors():
+            """Column vectors of the matrix, i.e. the images of the three unit basis vectors"""
+            e0 = (
+                m.Arrow()
+                .set_color(m.BLUE)
+                .add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        t_axes.c2p(*m.ORIGIN),
+                        t_axes.c2p(*mat.get_column(0).real),
+                    )
+                )
             )
 
-        heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
-        three_d_vis.add(heatmap)
+            e1 = (
+                m.Arrow()
+                .set_color(m.BLUE)
+                .add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        t_axes.c2p(*m.ORIGIN),
+                        t_axes.c2p(*mat.get_column(1).real),
+                    )
+                )
+            )
+            e2 = (
+                m.Arrow()
+                .set_color(m.BLUE)
+                .add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        t_axes.c2p(*m.ORIGIN),
+                        t_axes.c2p(*mat.get_column(2).real),
+                    )
+                )
+            )
+            column_vecs = m.VGroup(e0, e1, e2)
+            three_d_vis.add(column_vecs)
 
-        # Eigenvectors
-        v0 = m.Line(
-            t_axes.c2p(*(-1.5 * mat.get_eigenvector(0))),
-            t_axes.c2p(*(1.5 * mat.get_eigenvector(0))),
-            color=m.GREEN,
-        )
-        v0.add_updater(
-            lambda arr: arr.put_start_and_end_on(
+        def add_heatmap_real():
+            # Heatmap of function values
+            heatmap = m.SphereHeatMap(radius=1.0).move_to(t_axes.c2p(0, 0, 0))
+            heatmap.init_heatmap(m.HeatMapType.REAL)
+
+            def heatmap_fn(arr: np.ndarray):
+                return np.apply_along_axis(
+                    lambda p: mat.inner_product(heatmap.uv_func(*p)),
+                    axis=-1,
+                    arr=arr,
+                )
+
+            heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
+            three_d_vis.add(heatmap)
+
+        def add_heatmap_complex():
+            """Constructs a spherical heatmap whose values track with the (complex)"""
+            heatmap = m.SphereHeatMap(radius=1.0).move_to(t_axes.c2p(0, 0, 0))
+            heatmap.init_heatmap(m.HeatMapType.COMPLEX)
+
+            def heatmap_fn(arr: np.ndarray):
+                return np.apply_along_axis(
+                    lambda p: mat.inner_product(heatmap.uv_func(*p)),
+                    axis=-1,
+                    arr=np.stack((arr.real, arr.imag), axis=-1),
+                )
+
+            heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
+            three_d_vis.add(heatmap)
+
+        def add_eigenvectors():
+            # Eigenvectors
+            v0 = m.Line(
                 t_axes.c2p(*(-1.5 * mat.get_eigenvector(0))),
                 t_axes.c2p(*(1.5 * mat.get_eigenvector(0))),
+                color=m.GREEN,
             )
-        )
+            v0.add_updater(
+                lambda arr: arr.put_start_and_end_on(
+                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(0))),
+                    t_axes.c2p(*(1.5 * mat.get_eigenvector(0))),
+                )
+            )
 
-        v1 = m.Line(
-            t_axes.c2p(*(-1.5 * mat.get_eigenvector(1))),
-            t_axes.c2p(*(1.5 * mat.get_eigenvector(1))),
-            color=m.GREEN,
-        )
-        v1.add_updater(
-            lambda arr: arr.put_start_and_end_on(
+            v1 = m.Line(
                 t_axes.c2p(*(-1.5 * mat.get_eigenvector(1))),
                 t_axes.c2p(*(1.5 * mat.get_eigenvector(1))),
+                color=m.GREEN,
             )
-        )
+            v1.add_updater(
+                lambda arr: arr.put_start_and_end_on(
+                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(1))),
+                    t_axes.c2p(*(1.5 * mat.get_eigenvector(1))),
+                )
+            )
 
-        v2 = m.Line(
-            t_axes.c2p(*(-1.5 * mat.get_eigenvector(2))),
-            t_axes.c2p(*(1.5 * mat.get_eigenvector(2))),
-            color=m.GREEN,
-        )
-        v2.add_updater(
-            lambda arr: arr.put_start_and_end_on(
+            v2 = m.Line(
                 t_axes.c2p(*(-1.5 * mat.get_eigenvector(2))),
                 t_axes.c2p(*(1.5 * mat.get_eigenvector(2))),
+                color=m.GREEN,
             )
-        )
-        three_d_vis.add(v0, v1, v2)
+            v2.add_updater(
+                lambda arr: arr.put_start_and_end_on(
+                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(2))),
+                    t_axes.c2p(*(1.5 * mat.get_eigenvector(2))),
+                )
+            )
+            three_d_vis.add(v0, v1, v2)
 
+        def add_radial_surface():
+            # Radial depicting of function values
+            radial_fn = RadialFn(
+                f=lambda vec: mat.inner_product(vec), axes=t_axes, radius=1.0
+            ).move_to(t_axes.c2p(0, 0, 0))
+
+            def radial_fn_updater(mobj):
+                mobj.set_f(lambda vec: mat.inner_product(vec))
+
+            radial_fn.add_updater(radial_fn_updater)
+            three_d_vis.add(radial_fn)
+
+        def add_flow_vector():
+            """Add a vector v which moves around the unit sphere, along with the vector Av as well as the vector
+            Av - F(v)v sitting tangent to v"""
+            v = VectorTracker(d).set_vector(np.array([1.0, 0.0, 0.0]))
+
+            def w_updater(mobj):
+                v_vec = v.get_vector()
+                mobj.set_vector(
+                    mat.matmul(v_vec)
+                    - mat.inner_product(v_vec) * v_vec / (np.linalg.norm(v_vec) ** 2)
+                )
+
+            w = VectorTracker(d).add_updater(w_updater)
+
+            v_arrow = (
+                m.Arrow()
+                .set_color(m.RED)
+                .add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        t_axes.c2p(*m.ORIGIN), t_axes.c2p(*v.get_vector())
+                    )
+                )
+            )
+
+            w_arrow = (
+                m.Arrow()
+                .set_color(m.YELLOW)
+                .add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        t_axes.c2p(*v.get_vector()),
+                        t_axes.c2p(*(v.get_vector() + w.get_vector())),
+                    )
+                )
+            )
+            three_d_vis.add(v, w, v_arrow, w_arrow)
+            return v, w
+
+        add_column_vectors()
+        add_eigenvectors()
+        v, w = add_flow_vector()
+        # Setting orientation
         three_d_vis.rotate(-20 * m.DEGREES, (1, 0, 0))
         three_d_vis.set_width(8.0)
         three_d_vis.move_to((4, 0, 0))
 
-        self.add(mat_mobj)
-        self.add(mat)
+        self.add(mat, mat_mobj)
         self.add(three_d_vis)
 
         self.embed()
+
+        # Switch to a rnadom symmetric matrix
+        self.play(mat.slide_matrix(make_random_symmetric_matrix(3)))
+
+        # Rotate along flow direction
+        eps = 0.02
+        self.play(
+            v.rotate_vector(v.get_vector() + eps * w.get_vector()),
+            rate_func=m.linear,
+            run_time=5.0 * eps,
+        )
 
         # # Make the dictionary of value trackers which control the matrix
         # entries_trackers: dict[tuple[int, int], m.ValueTracker] = {}
