@@ -8,8 +8,10 @@ import numpy as np
 
 
 ### For general linear algebra
+#
 def make_random_symmetric_matrix(dim: int):
     """Random symmetric matrix whose diagonal entries are chosen from N(0, 1) and off-diagonal entries from N(0, 0.5)."""
+    # TODO Fix the mean and variance
     x = np.random.randn(dim, dim)
     return 0.5 * (x + x.T)
 
@@ -114,8 +116,9 @@ class MatrixTracker(m.Mobject):
         eig_result = np.linalg.eig(
             self.uniforms["matrix"].reshape((self.dim, self.dim))
         )
-        self.eigenvals = eig_result.eigenvalues
-        self.eigenvectors = eig_result.eigenvectors
+        # Sort in descending order
+        self.eigenvals = eig_result.eigenvalues[::-1]
+        self.eigenvectors = eig_result.eigenvectors[:, ::-1]
         return self
 
     def _recompute_eig_local(self):
@@ -232,8 +235,9 @@ class SymmetricMatrixTracker(MatrixTracker):
         eig_result = np.linalg.eigh(
             self.uniforms["matrix"].reshape((self.dim, self.dim))
         )
-        self.eigenvals = eig_result.eigenvalues
-        self.eigenvectors = eig_result.eigenvectors
+        # Sort in descending order
+        self.eigenvals = eig_result.eigenvalues[::-1]
+        self.eigenvectors = eig_result.eigenvectors[:, ::-1]
         return self
 
     def _recompute_eig_local(self):
@@ -244,8 +248,6 @@ class SymmetricMatrixTracker(MatrixTracker):
 
 
 ### For visualization of the Spectral theorem in R^3
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
 
 
 class RadialFn(m.Sphere):
@@ -270,246 +272,7 @@ class RadialFn(m.Sphere):
                 -math.cos(v),
             ]
         )
-        return self.axes.c2p(*(sigmoid(self.f(unit_vec)) * self.radius * unit_vec))
-
-
-### Dumping ground
-class LinAlgMatrix(m.Scene):
-    """We can allow the parameters of a linear transformation to be controlled by ValueTrackers.
-    What I want is an efficient way to vary e.g. the eigenvalues and eigenvectors, without having
-    to recompute them from scratch every time. Probably what it will come down to is:
-        - Update the matrix itself according to the new value tracker values.
-        - Directly recompute the characteristic polynomial.
-        - Using Newton's method to retrieve the roots, starting from the roots at the previous method.
-        - Shift the vectors"""
-
-    def construct(self):
-        d = 3
-
-        # Create the underlying matrix which varies
-        mat = SymmetricMatrixTracker(d)
-
-        # Instantiate a displayed decimal matrix object which tracks with mat
-        mat_mobj = m.DecimalMatrix(mat.get_matrix()).move_to((-5, 2, 0))
-
-        def mat_updater(mobj: m.DecimalMatrix):
-            for i in range(d):
-                for j in range(d):
-                    mobj.mob_matrix[i][j].set_value(mat.get_value(i, j))
-
-        mat_mobj.add_updater(mat_updater)
-
-        ## 3D visualization
-        three_d_vis = m.Group()
-
-        # Axes on which everything will be placed
-        t_axes = m.ThreeDAxes(
-            (-2, 2),
-            (-2, 2),
-            (-2, 2),
-            axis_config={"include_ticks": False, "include_tip": True},
-        )
-        t_axes.add_axis_labels(font_size=36)
-        three_d_vis.add(t_axes)
-
-        def add_column_vectors():
-            """Column vectors of the matrix, i.e. the images of the three unit basis vectors"""
-            e0 = (
-                m.Arrow()
-                .set_color(m.BLUE)
-                .add_updater(
-                    lambda mobj: mobj.put_start_and_end_on(
-                        t_axes.c2p(*m.ORIGIN),
-                        t_axes.c2p(*mat.get_column(0).real),
-                    )
-                )
-            )
-
-            e1 = (
-                m.Arrow()
-                .set_color(m.BLUE)
-                .add_updater(
-                    lambda mobj: mobj.put_start_and_end_on(
-                        t_axes.c2p(*m.ORIGIN),
-                        t_axes.c2p(*mat.get_column(1).real),
-                    )
-                )
-            )
-            e2 = (
-                m.Arrow()
-                .set_color(m.BLUE)
-                .add_updater(
-                    lambda mobj: mobj.put_start_and_end_on(
-                        t_axes.c2p(*m.ORIGIN),
-                        t_axes.c2p(*mat.get_column(2).real),
-                    )
-                )
-            )
-            column_vecs = m.VGroup(e0, e1, e2)
-            three_d_vis.add(column_vecs)
-            return column_vecs
-
-        def add_heatmap_real():
-            # Heatmap of function values
-            heatmap = m.SphereHeatMap(radius=1.0, resolution=(101, 51)).move_to(
-                t_axes.c2p(0, 0, 0)
-            )
-            heatmap.init_heatmap(m.HeatMapType.REAL)
-
-            def heatmap_fn(arr: np.ndarray):
-                return np.apply_along_axis(
-                    lambda p: mat.inner_product(heatmap.uv_func(*p)),
-                    axis=-1,
-                    arr=arr,
-                )
-
-            heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
-            three_d_vis.add(heatmap)
-            # heatmap = m.Sphere(radius=1.0)
-            # heatmap.mesh = m.SurfaceMesh(heatmap)
-            # heatmap.mesh.set_stroke(m.BLUE, 1, opacity=0.5)
-            # three_d_vis.add(heatmap.mesh)
-            return heatmap
-
-        def add_heatmap_complex():
-            """Constructs a spherical heatmap whose values track with the (complex)"""
-            heatmap = m.SphereHeatMap(radius=1.0).move_to(t_axes.c2p(0, 0, 0))
-            heatmap.init_heatmap(m.HeatMapType.COMPLEX)
-
-            def heatmap_fn(arr: np.ndarray):
-                return np.apply_along_axis(
-                    lambda p: mat.inner_product(heatmap.uv_func(*p)),
-                    axis=-1,
-                    arr=np.stack((arr.real, arr.imag), axis=-1),
-                )
-
-            heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
-            three_d_vis.add(heatmap)
-            return heatmap
-
-        def add_eigenvalues():
-            eigenvals = VectorTracker(3).add_updater(
-                lambda mobj: mobj.set_vector(mat.eigenvals)
-            )
-            eigenvals_mobj = m.DecimalMatrix(eigenvals.get_vector().reshape((1, d)))
-
-            def vec_updater(mobj: m.DecimalMatrix):
-                for i in range(d):
-                    mobj.mob_matrix[0][i].set_value(eigenvals.get_value(i))
-
-            eigenvals_mobj.add_updater(vec_updater)
-            self.add(eigenvals, eigenvals_mobj)
-            return eigenvals, eigenvals_mobj
-
-        def add_eigenvectors():
-            # Eigenvectors
-            v0 = m.Line().set_color(m.GREEN).set_opacity(0.5)
-            v0.add_updater(
-                lambda arr: arr.put_start_and_end_on(
-                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(0))),
-                    t_axes.c2p(*(1.5 * mat.get_eigenvector(0))),
-                )
-            )
-
-            v1 = m.Line().set_color(m.GREEN).set_opacity(0.5)
-            v1.add_updater(
-                lambda arr: arr.put_start_and_end_on(
-                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(1))),
-                    t_axes.c2p(*(1.5 * mat.get_eigenvector(1))),
-                )
-            )
-
-            v2 = m.Line().set_color(m.GREEN).set_opacity(0.5)
-            v2.add_updater(
-                lambda arr: arr.put_start_and_end_on(
-                    t_axes.c2p(*(-1.5 * mat.get_eigenvector(2))),
-                    t_axes.c2p(*(1.5 * mat.get_eigenvector(2))),
-                )
-            )
-            eigenvecs = m.VGroup(v0, v1, v2)
-            three_d_vis.add(eigenvecs)
-            return eigenvecs
-
-        def add_radial_surface():
-            # Radial depicting of function values
-            radial_fn = RadialFn(
-                f=lambda vec: mat.inner_product(vec), axes=t_axes, radius=1.0
-            ).move_to(t_axes.c2p(0, 0, 0))
-
-            def radial_fn_updater(mobj):
-                mobj.set_f(lambda vec: mat.inner_product(vec))
-
-            radial_fn.add_updater(radial_fn_updater)
-            return radial_fn
-
-        def add_flow_vector():
-            """Add a vector v which moves around the unit sphere, along with the vector Av as well as the vector
-            Av - F(v)v sitting tangent to v"""
-            v = VectorTracker(d).set_vector(np.array([1.0, 0.0, 0.0]))
-
-            def w_updater(mobj):
-                v_vec = v.get_vector()
-                mobj.set_vector(
-                    mat.matmul(v_vec)
-                    - mat.inner_product(v_vec) * v_vec / (np.linalg.norm(v_vec) ** 2)
-                )
-
-            w = VectorTracker(d).add_updater(w_updater)
-
-            v_arrow = (
-                m.Arrow()
-                .set_color(m.RED)
-                .add_updater(
-                    lambda mobj: mobj.put_start_and_end_on(
-                        t_axes.c2p(*m.ORIGIN), t_axes.c2p(*v.get_vector())
-                    )
-                )
-            )
-
-            w_arrow = (
-                m.Arrow()
-                .set_color(m.YELLOW)
-                .add_updater(
-                    lambda mobj: mobj.put_start_and_end_on(
-                        t_axes.c2p(*v.get_vector()),
-                        t_axes.c2p(*(v.get_vector() + w.get_vector())),
-                    )
-                )
-            )
-            three_d_vis.add(v, w, v_arrow, w_arrow)
-            return v, w, v_arrow, w_arrow
-
-        column_vecs = add_column_vectors()
-        eigenvecs = add_eigenvectors()
-        eigenvals, eigenvals_mobj = add_eigenvalues()
-        eigenvals_mobj.move_to((-5, -2, 0))
-        heatmap = add_heatmap_real()
-
-        v, w, v_arrow, w_arrow = add_flow_vector()
-        # Setting orientation
-        three_d_vis.rotate(20 * m.DEGREES, (1, 0, 0))
-        three_d_vis.set_width(8.0)
-        three_d_vis.move_to((4, 0, 0))
-
-        self.add(mat, mat_mobj)
-        self.add(three_d_vis)
-
-        # self.embed()
-
-        # Switch to a random symmetric matrix
-        self.play(mat.slide_matrix(make_random_symmetric_matrix(3)))
-
-        # Rotate v along flow direction
-        eps = 1 / 30
-        for _ in range(30):
-            self.play(
-                three_d_vis.animate.rotate(-50 * eps * m.DEGREES, (0, 1, 0)),
-                v.rotate_vector(v.get_vector() + eps * w.get_vector()),
-                rate_func=m.linear,
-                run_time=3.0 * eps,
-            )
-            # three_d_vis.animate.rotate(-50 * eps * m.DEGREES, (0, 1, 0))
-        self.embed()
+        return self.axes.c2p(*(m.sigmoid(self.f(unit_vec)) * self.radius * unit_vec))
 
 
 """
@@ -543,12 +306,16 @@ class WhatIsSymmetric(m.Scene):
 
     def construct(self):
         xmax = 6.0
-        plane = m.NumberPlane(x_range = (-xmax, xmax, 1.), y_range = (-xmax, xmax, 1.))
+        plane = m.NumberPlane(x_range=(-xmax, xmax, 1.0), y_range=(-xmax, xmax, 1.0))
         self.play(m.ShowCreation(plane))
 
         basis = m.VGroup()
-        e0 = m.Arrow(plane.c2p(0., 0.), plane.c2p(1., 0.), buff=0.).set_color(m.WHITE)
-        e1 = m.Arrow(plane.c2p(0., 0.), plane.c2p(0., 1.), buff=0.).set_color(m.WHITE)
+        e0 = m.Arrow(plane.c2p(0.0, 0.0), plane.c2p(1.0, 0.0), buff=0.0).set_color(
+            m.WHITE
+        )
+        e1 = m.Arrow(plane.c2p(0.0, 0.0), plane.c2p(0.0, 1.0), buff=0.0).set_color(
+            m.WHITE
+        )
         basis.add(e0, e1)
         self.play(m.ShowCreation(basis))
 
@@ -567,10 +334,22 @@ class WhatIsSymmetric(m.Scene):
         self.play(m.ShowCreation(mat_mobj))
 
         column_vecs = m.VGroup()
-        v0 = m.Arrow(plane.c2p(0., 0.), plane.c2p(*mat.get_column(0))).set_color(m.BLUE)
-        v0.add_updater(lambda mobj: mobj.put_start_and_end_on(plane.c2p(0., 0.), plane.c2p(*mat.get_column(0))))
-        v1 = m.Arrow(plane.c2p(0., 0.), plane.c2p(*mat.get_column(1))).set_color(m.BLUE)
-        v1.add_updater(lambda mobj: mobj.put_start_and_end_on(plane.c2p(0., 0.), plane.c2p(*mat.get_column(1))))
+        v0 = m.Arrow(plane.c2p(0.0, 0.0), plane.c2p(*mat.get_column(0))).set_color(
+            m.BLUE
+        )
+        v0.add_updater(
+            lambda mobj: mobj.put_start_and_end_on(
+                plane.c2p(0.0, 0.0), plane.c2p(*mat.get_column(0))
+            )
+        )
+        v1 = m.Arrow(plane.c2p(0.0, 0.0), plane.c2p(*mat.get_column(1))).set_color(
+            m.BLUE
+        )
+        v1.add_updater(
+            lambda mobj: mobj.put_start_and_end_on(
+                plane.c2p(0.0, 0.0), plane.c2p(*mat.get_column(1))
+            )
+        )
         column_vecs.add(v0, v1)
         self.play(m.ShowCreation(column_vecs))
 
@@ -578,24 +357,45 @@ class WhatIsSymmetric(m.Scene):
         self.play(mat.slide_matrix(make_random_symmetric_matrix(2)))
 
         # Indicate the pair e0, v1 and compute the dot product
-        self.play(m.Indicate(e1), m.Indicate(v0), m.Indicate(mat_mobj.mob_matrix[1][0]), run_time=1.0)
+        self.play(
+            m.Indicate(e1),
+            m.Indicate(v0),
+            m.Indicate(mat_mobj.mob_matrix[1][0]),
+            run_time=1.0,
+        )
 
-        self.play(m.Indicate(e0), m.Indicate(v1), m.Indicate(mat_mobj.mob_matrix[0][1]), run_time=1.0)
+        self.play(
+            m.Indicate(e0),
+            m.Indicate(v1),
+            m.Indicate(mat_mobj.mob_matrix[0][1]),
+            run_time=1.0,
+        )
 
         # Draw dashed lines to compute these
-        d0 = m.DashedLine(dash_length=0.1).set_color(m.YELLOW).add_updater(lambda mobj: mobj.put_start_and_end_on(
-            plane.c2p(*mat.get_column(0)), plane.c2p(mat.get_value(0, 0), 0)
-        ))
-        d1 = m.DashedLine(dash_length=0.1).set_color(m.YELLOW).add_updater(lambda mobj: mobj.put_start_and_end_on(
-            plane.c2p(*mat.get_column(1)), plane.c2p(0, mat.get_value(1, 1))
-        ))
+        d0 = (
+            m.DashedLine(dash_length=0.1)
+            .set_color(m.YELLOW)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    plane.c2p(*mat.get_column(0)), plane.c2p(mat.get_value(0, 0), 0)
+                )
+            )
+        )
+        d1 = (
+            m.DashedLine(dash_length=0.1)
+            .set_color(m.YELLOW)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    plane.c2p(*mat.get_column(1)), plane.c2p(0, mat.get_value(1, 1))
+                )
+            )
+        )
 
         self.play(m.ShowCreation(d0), m.ShowCreation(d1), run_time=1.0)
 
-        # Slide to a random symmetric matrix
-        self.play(mat.slide_matrix(make_random_symmetric_matrix(2)))
+        # Slide to a few more random symmetric matrices
+        self.play(mat.slide_matrix(2 * make_random_symmetric_matrix(2)))
         self.embed()
-
 
 
 class RepresentationsOfVectors(m.Scene):
@@ -605,6 +405,22 @@ class RepresentationsOfVectors(m.Scene):
     (1) A list of D numbers.
     (2) A function on a domain of size D.
     (3) A point in D-dimensional space."""
+
+    def construct(self):
+        pass
+
+
+class GramSchmidt(m.Scene):
+    """Animate the Gram-Schmidt procedure in three dimensions, while depicting symbolic manipulation of the matrix
+    on the side."""
+
+    def construct(self):
+        pass
+
+
+class ComputeLegendrePolynomials(m.Scene):
+    """Compute the Legendre polynomials over [-1, 1] using Gram-Schmidt, showing the symbolic manipulation of the matrix
+    on the side."""
 
     def construct(self):
         pass
@@ -638,7 +454,7 @@ class WhereDoSymmetricMatricesAppear(m.Scene):
 # down in general when V is infinite-dimensional.
 # - The proof also relies on the statement that for any subspace W < V, V = W \oplus W^{\perp}. This is
 # why the proof breaks down for vector spaces over fields of nonzero characteristic.
-class SpectralTheorem(m.ThreeDScene):
+class SpectralTheorem(m.Scene):
     """Let S be a symmetric linear operator on a finite-dimensional space, i.e. where S = S^T. We want to show that S has an orthonormal basis of eigenvectors.
 
     A formal proof relies on the following very short lemma.
@@ -664,60 +480,221 @@ class SpectralTheorem(m.ThreeDScene):
     so the derivative is 2a. This last equality relies on the fact that S is symmetric, which told us that <w, Sv> = <v, Sw>.
     The only way"""
 
-    def construct(self):
-        # Draw axes and sphere
-        axes = ThreeDAxes()
-        heatmap = SphereHeatMap(radius=1.0)  # Sphere heatmap
-        heatmap.init_heatmap(HeatMapType.REAL)
+    def make_eigenvalues(self, mat: MatrixTracker):
+        eigenvals = VectorTracker(mat.dim).add_updater(
+            lambda mobj: mobj.set_vector(mat.eigenvals)
+        )
+        eigenvals_mobj = m.DecimalMatrix(eigenvals.get_vector().reshape((1, mat.dim)))
 
-        # Matrix which is under consideration
-        c_11 = ValueTracker(0.0)
-        c_22 = ValueTracker(0.0)
-        c_33 = ValueTracker(0.0)
-        c_12 = ValueTracker(0.0)
-        c_13 = ValueTracker(0.0)
-        c_23 = ValueTracker(0.0)
+        def vec_updater(mobj: m.DecimalMatrix):
+            for i in range(mat.dim):
+                mobj.mob_matrix[0][i].set_value(eigenvals.get_value(i))
 
-        def make_matrix() -> np.ndarray:
-            return np.array(
-                [
-                    [c_11.get_value(), c_12.get_value(), c_13.get_value()],
-                    [c_12.get_value(), c_22.get_value(), c_23.get_value()],
-                    [c_13.get_value(), c_23.get_value(), c_33.get_value()],
-                ]
+        eigenvals_mobj.add_updater(vec_updater)
+        return eigenvals, eigenvals_mobj
+
+    def make_eigenvectors(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
+        """Constructs the eigenvectors of a matrix as geometric objects."""
+        assert mat.dim <= 3
+        v0 = m.Line().set_color(m.GREEN).set_opacity(1.0)
+        v0.add_updater(
+            lambda arr: arr.put_start_and_end_on(
+                t_axes.c2p(*(-1.5 * mat.get_eigenvector(0))),
+                t_axes.c2p(*(1.5 * mat.get_eigenvector(0))),
             )
+        )
 
-        # Maps a
-        def _heatmap_fn(pt: np.ndarray, m: np.ndarray):
-            """Maps an incoming chart vector p of shape (2,) and an inner product matrix M of shape (3, 3)
-            to the dot product <f(p), Mf(p)>."""
-            vec = heatmap.uv_func(pt[0], pt[1])
-            return np.dot(vec, np.matmul(m, vec))
+        v1 = m.Line().set_color(m.GREEN).set_opacity(0.3)
+        v1.add_updater(
+            lambda arr: arr.put_start_and_end_on(
+                t_axes.c2p(*(-1.5 * mat.get_eigenvector(1))),
+                t_axes.c2p(*(1.5 * mat.get_eigenvector(1))),
+            )
+        )
 
-        def heatmap_fn(arr: np.ndarray):
-            """Maps the array of points in R^2 (parametrizing a surface) to the self-inner-products under the
-            matrix parametrized by the value trackers"""
-            # Initialize matrix from parameters
-            mat = make_matrix()
-            # Apply underlying
-            return np.apply_along_axis(lambda p: _heatmap_fn(p, mat), axis=-1, arr=arr)
+        v2 = m.Line().set_color(m.GREEN).set_opacity(0.3)
+        v2.add_updater(
+            lambda arr: arr.put_start_and_end_on(
+                t_axes.c2p(*(-1.5 * mat.get_eigenvector(2))),
+                t_axes.c2p(*(1.5 * mat.get_eigenvector(2))),
+            )
+        )
+        return m.VGroup(v0, v1, v2)
 
-        heatmap.set_f(heatmap_fn)
-
-        # Add an updater which sets the function as parameters change
-        # TODO Check if anything changed before recomputing
-        heatmap.add_updater(
-            lambda mobj: mobj.set_f(
-                lambda z: np.apply_along_axis(
-                    lambda p: _heatmap_fn(p, make_matrix()), axis=-1, arr=z
+    def make_column_vectors(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
+        """Construct column vectors of a matrix, i.e. the images of the three unit basis vectors"""
+        assert mat.dim <= 3
+        e0 = (
+            m.Arrow()
+            .set_color(m.BLUE)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    t_axes.c2p(*m.ORIGIN),
+                    t_axes.c2p(*mat.get_column(0).real),
                 )
             )
         )
 
-        # heatmap.mesh = SurfaceMesh(heatmap).set_stroke(BLUE, 1, opacity=0.5)
-        self.play(
-            ShowCreation(axes),
-            ShowCreation(heatmap),
+        e1 = (
+            m.Arrow()
+            .set_color(m.BLUE)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    t_axes.c2p(*m.ORIGIN),
+                    t_axes.c2p(*mat.get_column(1).real),
+                )
+            )
+        )
+        e2 = (
+            m.Arrow()
+            .set_color(m.BLUE)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    t_axes.c2p(*m.ORIGIN),
+                    t_axes.c2p(*mat.get_column(2).real),
+                )
+            )
+        )
+        return m.VGroup(e0, e1, e2)
+
+    def make_heatmap(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
+        """Makes a heatmap over the unit sphere depicting the value of f(v) = <v, Av>"""
+        assert mat.dim <= 3
+        heatmap = m.SphereHeatMap(radius=1.0, resolution=(101, 51)).move_to(
+            t_axes.c2p(0, 0, 0)
+        )
+        heatmap.init_heatmap(m.HeatMapType.REAL)
+
+        def rgba_real(arr: np.ndarray):
+            """Maps an array of real numbers (shape (*,)) to an RGBA array (shape (*, 4))."""
+            return np.stack(
+                (
+                    (arr > 0).astype(float)
+                    * (2 * m.sigmoid(arr) - 1),  # Red for positive positions
+                    np.zeros_like(arr),
+                    (arr < 0).astype(float)
+                    * (1 - 2 * m.sigmoid(arr)),  # Blue for negative positions
+                    0.8 * np.ones_like(arr),
+                ),
+                axis=-1,
+            )
+
+        heatmap.set_rgba_fn(rgba_real)
+
+        def heatmap_fn(arr: np.ndarray):
+            return np.apply_along_axis(
+                lambda p: mat.inner_product(heatmap.uv_func(*p)),
+                axis=-1,
+                arr=arr,
+            )
+
+        heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
+        return heatmap
+
+    def make_flow_vector(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
+        """Add a vector v which moves around the unit sphere, along with the vector Av as well as the vector
+        Av - F(v)v sitting tangent to v. Key to the proof of the Spectral Theorem."""
+        assert mat.dim <= 3
+        v = VectorTracker(mat.dim).set_vector(np.array([1.0, 0.0, 0.0]))
+
+        def w_updater(mobj: VectorTracker):
+            v_vec = v.get_vector()
+            mobj.set_vector(
+                mat.matmul(v_vec)
+                - mat.inner_product(v_vec) * v_vec / (np.linalg.norm(v_vec) ** 2)
+            )
+
+        w = VectorTracker(mat.dim).add_updater(w_updater)
+
+        v_arrow = (
+            m.Arrow()
+            .set_color(m.RED)
+            .add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    t_axes.c2p(*m.ORIGIN), t_axes.c2p(*v.get_vector())
+                )
+            )
         )
 
+        def w_arrow_updater(mobj: m.Arrow):
+            mobj.put_start_and_end_on(
+                t_axes.c2p(*v.get_vector()),
+                t_axes.c2p(*(v.get_vector() + w.get_vector())),
+            )
+
+        w_arrow = m.Arrow().set_color(m.YELLOW).add_updater(w_arrow_updater)
+        return v, w, v_arrow, w_arrow
+
+    def randomize(self, mat: MatrixTracker):
+        """Randomize the matrix"""
+        self.play(mat.slide_matrix(make_random_symmetric_matrix(mat.dim)))
+
+    def construct(self):
+        # Dimension 3
+        d = 3
+
+        # Create the underlying matrix which varies
+        mat = SymmetricMatrixTracker(d)
+        mat.set_matrix(make_random_symmetric_matrix(3))
+
+        ### Symbolic half of the picture
+        symbolic_part = m.Group()
+
+        # Instantiate a displayed decimal matrix object which tracks with mat
+        def mat_updater(mobj: m.DecimalMatrix):
+            for i in range(d):
+                for j in range(d):
+                    mobj.mob_matrix[i][j].set_value(mat.get_value(i, j))
+
+        mat_mobj = m.DecimalMatrix(mat.get_matrix()).add_updater(mat_updater)
+        symbolic_part.add(mat_mobj)
+
+        eigenvals, eigenvals_mobj = self.make_eigenvalues(mat)
+        eigenvals_mobj.next_to(mat_mobj, m.DOWN, buff=1.5)
+        symbolic_part.add(eigenvals, eigenvals_mobj)
+        symbolic_part.move_to((-5, 0, 0))
+
+        self.play(m.FadeIn(mat_mobj), run_time=1.0)
+        self.play(m.FadeIn(eigenvals_mobj), run_time=1.0)
+
+        ### Geometric half of the picture
+        geometric_part = m.Group()
+
+        # Axes on which everything will be placed
+        axes = m.ThreeDAxes(
+            (-2, 2),
+            (-2, 2),
+            (-2, 2),
+            axis_config={"include_ticks": False, "include_tip": True},
+        )
+        axes.add_axis_labels(font_size=36)
+        geometric_part.add(axes)
+
+        column_vecs = self.make_column_vectors(mat, axes)
+        eigenvecs = self.make_eigenvectors(mat, axes)
+        heatmap = self.make_heatmap(mat, axes)
+        v, w, v_arrow, w_arrow = self.make_flow_vector(mat, axes)
+        self.add(v, w)
+        geometric_part.add(heatmap, column_vecs, eigenvecs, v, w, v_arrow, w_arrow)
+        geometric_part.rotate(-20 * m.DEGREES, (0, 1, 0))
+        geometric_part.set_width(8.0)
+        geometric_part.move_to((4, 0, 0))
+
+        self.play(m.ShowCreation(axes))
+        self.play(m.ShowCreation(column_vecs))
+        self.play(m.ShowCreation(eigenvecs))
+        self.play(m.ShowCreation(heatmap))
+        self.play(m.ShowCreation(v_arrow), m.ShowCreation(w_arrow))
+
         self.embed()
+
+        # TODO Flow vector
+        # Rotate v along flow direction
+        eps = 1 / 30
+        for _ in range(30):
+            self.play(
+                three_d_vis.animate.rotate(-50 * eps * m.DEGREES, (0, 1, 0)),
+                v.rotate_vector(v.get_vector() + eps * w.get_vector()),
+                rate_func=m.linear,
+                run_time=3.0 * eps,
+            )
