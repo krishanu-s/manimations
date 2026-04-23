@@ -351,7 +351,9 @@ class LinAlgMatrix(m.Scene):
 
         def add_heatmap_real():
             # Heatmap of function values
-            heatmap = m.SphereHeatMap(radius=1.0).move_to(t_axes.c2p(0, 0, 0))
+            heatmap = m.SphereHeatMap(radius=1.0, resolution=(101, 51)).move_to(
+                t_axes.c2p(0, 0, 0)
+            )
             heatmap.init_heatmap(m.HeatMapType.REAL)
 
             def heatmap_fn(arr: np.ndarray):
@@ -363,6 +365,10 @@ class LinAlgMatrix(m.Scene):
 
             heatmap.add_updater(lambda mobj: mobj.set_f(heatmap_fn))
             three_d_vis.add(heatmap)
+            # heatmap = m.Sphere(radius=1.0)
+            # heatmap.mesh = m.SurfaceMesh(heatmap)
+            # heatmap.mesh.set_stroke(m.BLUE, 1, opacity=0.5)
+            # three_d_vis.add(heatmap.mesh)
             return heatmap
 
         def add_heatmap_complex():
@@ -434,7 +440,6 @@ class LinAlgMatrix(m.Scene):
                 mobj.set_f(lambda vec: mat.inner_product(vec))
 
             radial_fn.add_updater(radial_fn_updater)
-            three_d_vis.add(radial_fn)
             return radial_fn
 
         def add_flow_vector():
@@ -472,14 +477,15 @@ class LinAlgMatrix(m.Scene):
                 )
             )
             three_d_vis.add(v, w, v_arrow, w_arrow)
-            return v, w
+            return v, w, v_arrow, w_arrow
 
         column_vecs = add_column_vectors()
         eigenvecs = add_eigenvectors()
         eigenvals, eigenvals_mobj = add_eigenvalues()
         eigenvals_mobj.move_to((-5, -2, 0))
+        heatmap = add_heatmap_real()
 
-        v, w = add_flow_vector()
+        v, w, v_arrow, w_arrow = add_flow_vector()
         # Setting orientation
         three_d_vis.rotate(20 * m.DEGREES, (1, 0, 0))
         three_d_vis.set_width(8.0)
@@ -488,20 +494,22 @@ class LinAlgMatrix(m.Scene):
         self.add(mat, mat_mobj)
         self.add(three_d_vis)
 
-        self.embed()
+        # self.embed()
 
         # Switch to a random symmetric matrix
         self.play(mat.slide_matrix(make_random_symmetric_matrix(3)))
 
         # Rotate v along flow direction
-        eps = 0.005
-        for _ in range(200):
+        eps = 1 / 30
+        for _ in range(30):
             self.play(
+                three_d_vis.animate.rotate(-50 * eps * m.DEGREES, (0, 1, 0)),
                 v.rotate_vector(v.get_vector() + eps * w.get_vector()),
                 rate_func=m.linear,
-                run_time=5.0 * eps,
+                run_time=3.0 * eps,
             )
-            three_d_vis.rotate(50 * eps * m.DEGREES, (1, 0, 0))
+            # three_d_vis.animate.rotate(-50 * eps * m.DEGREES, (0, 1, 0))
+        self.embed()
 
 
 """
@@ -530,17 +538,108 @@ Convolutionw with A(t) defines yet another linear transformation. I think this o
 
 
 ### Scenes
-class WhatIsSymmetric(m.ThreeDScene):
-    """Depict the meaning of `symmetric` in two dimensions."""
+class WhatIsSymmetric(m.Scene):
+    """Simple explanation of what `symmetric` means for a 2x2 matrix."""
+
+    def construct(self):
+        xmax = 6.0
+        plane = m.NumberPlane(x_range = (-xmax, xmax, 1.), y_range = (-xmax, xmax, 1.))
+        self.play(m.ShowCreation(plane))
+
+        basis = m.VGroup()
+        e0 = m.Arrow(plane.c2p(0., 0.), plane.c2p(1., 0.), buff=0.).set_color(m.WHITE)
+        e1 = m.Arrow(plane.c2p(0., 0.), plane.c2p(0., 1.), buff=0.).set_color(m.WHITE)
+        basis.add(e0, e1)
+        self.play(m.ShowCreation(basis))
+
+        mat = MatrixTracker(2)
+        mat.set_matrix(np.eye(2))
+        mat_mobj = m.DecimalMatrix(mat.get_matrix()).move_to((4.5, 4.5, 0))
+
+        def mat_updater(mobj: m.DecimalMatrix):
+            for i in range(2):
+                for j in range(2):
+                    mobj.mob_matrix[i][j].set_value(mat.get_value(i, j))
+
+        mat_mobj.add_updater(mat_updater)
+
+        self.add(mat)
+        self.play(m.ShowCreation(mat_mobj))
+
+        column_vecs = m.VGroup()
+        v0 = m.Arrow(plane.c2p(0., 0.), plane.c2p(*mat.get_column(0))).set_color(m.BLUE)
+        v0.add_updater(lambda mobj: mobj.put_start_and_end_on(plane.c2p(0., 0.), plane.c2p(*mat.get_column(0))))
+        v1 = m.Arrow(plane.c2p(0., 0.), plane.c2p(*mat.get_column(1))).set_color(m.BLUE)
+        v1.add_updater(lambda mobj: mobj.put_start_and_end_on(plane.c2p(0., 0.), plane.c2p(*mat.get_column(1))))
+        column_vecs.add(v0, v1)
+        self.play(m.ShowCreation(column_vecs))
+
+        # Slide to a random symmetric matrix
+        self.play(mat.slide_matrix(make_random_symmetric_matrix(2)))
+
+        # Indicate the pair e0, v1 and compute the dot product
+        self.play(m.Indicate(e1), m.Indicate(v0), m.Indicate(mat_mobj.mob_matrix[1][0]), run_time=1.0)
+
+        self.play(m.Indicate(e0), m.Indicate(v1), m.Indicate(mat_mobj.mob_matrix[0][1]), run_time=1.0)
+
+        # Draw dashed lines to compute these
+        d0 = m.DashedLine(dash_length=0.1).set_color(m.YELLOW).add_updater(lambda mobj: mobj.put_start_and_end_on(
+            plane.c2p(*mat.get_column(0)), plane.c2p(mat.get_value(0, 0), 0)
+        ))
+        d1 = m.DashedLine(dash_length=0.1).set_color(m.YELLOW).add_updater(lambda mobj: mobj.put_start_and_end_on(
+            plane.c2p(*mat.get_column(1)), plane.c2p(0, mat.get_value(1, 1))
+        ))
+
+        self.play(m.ShowCreation(d0), m.ShowCreation(d1), run_time=1.0)
+
+        # Slide to a random symmetric matrix
+        self.play(mat.slide_matrix(make_random_symmetric_matrix(2)))
+        self.embed()
+
+
+
+class RepresentationsOfVectors(m.Scene):
+    """It's worth thinking about the three different ways we `visualize` a vector and being ready to
+    jump between these.
+
+    (1) A list of D numbers.
+    (2) A function on a domain of size D.
+    (3) A point in D-dimensional space."""
 
     def construct(self):
         pass
 
 
-class SpectralTheorem(m.ThreeDScene):
-    """Let S be a symmetric matrix, i.e. where S = S^T. We want to show that S has an orthonormal basis of eigenvectors.
+class WhereDoSymmetricMatricesAppear(m.Scene):
+    """Motivate the concept of symmetric matrices by showing a few example settings:
+    - Consider a finite undirected graph, and a random walk on the vertices of the graph.
+    Our vector space consists of probability distributions on the vertices of the graph, with dot product
+    given by the probability of being at the same location, and our linear operator is expressed in terms
+    of the adjacency matrix.
 
-    Q: How do we visualize what "symmetric" means?
+    The linear operator is symmetric precisely when P(i -> j) == P(j -> i), which occurs when the graph
+    is *undirected* and *regular*, meaning every vertex has the same out-degree. The Spectral theorem
+    tells us that there is an eigendecomposition
+
+    - Consider the interval I = [0, 1], and the vector space of all real-valued functions on I, with an
+    inner product given by <f, g> = \int_0^1 f(t)g(t)dt. This is an infinite-dimensional space with
+    many possible linear operators on it. One such operator is f(t) -> f'(t) (this is skew-symmetric if we
+    require f(0) = f(1)). Another such operator is f(t) -> tf(t) (this is symmetric). In this case, the spectral
+    theorem doesn't hold because the operator in question is not *compact* (we will see exactly why the proof breaks down).
+    """
+
+    def construct(self):
+        pass
+
+
+# Below: to be refined.
+# - The proof essentially relies on the fact that the unit sphere in V is *compact*, which implies
+# that any continuous scalar-valued function on V has a maximum value. This is why the proof breaks
+# down in general when V is infinite-dimensional.
+# - The proof also relies on the statement that for any subspace W < V, V = W \oplus W^{\perp}. This is
+# why the proof breaks down for vector spaces over fields of nonzero characteristic.
+class SpectralTheorem(m.ThreeDScene):
+    """Let S be a symmetric linear operator on a finite-dimensional space, i.e. where S = S^T. We want to show that S has an orthonormal basis of eigenvectors.
 
     A formal proof relies on the following very short lemma.
 
