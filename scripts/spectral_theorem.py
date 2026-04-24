@@ -16,6 +16,12 @@ def make_random_symmetric_matrix(dim: int):
     return 0.5 * (x + x.T)
 
 
+def make_random_integer_symmetric_matrix(dim: int, low: int = -9, high: int = 9):
+    x = np.random.randint(low, high, (dim, dim))
+    # TODO Fix
+    return 0.5 * (x + x.T)
+
+
 class VectorTracker(m.Mobject):
     """Stores a vector with real entries, where the individual entries act as value trackers."""
 
@@ -101,16 +107,22 @@ class MatrixTracker(m.Mobject):
     as value trackers. Contains convenience functions for computing, e.g., eigenvalues and eigenvectors,
     and recomputes these whenever entries are set."""
 
-    value_type: type = np.complex128
+    value_type: type
+    recompute_eig: bool = False
 
-    def __init__(self, dim: int, **kwargs):
+    def __init__(self, dim: int, value_type: type = np.complex128, **kwargs):
         self.dim = dim
+        self.value_type = value_type
         self.matrix = np.zeros((dim, dim), dtype=self.value_type)
         self.eigenvals = np.zeros((dim,), dtype=self.value_type)
         self.eigenvectors = np.eye(dim, dtype=self.value_type)
         super().__init__(**kwargs)
 
-    def _recompute_eig(self):
+    def set_recompute_eig(self, v: bool):
+        self.recompute_eig = v
+        return self
+
+    def _do_recompute_eig(self):
         """Recomputes the eigenvalues and eigenvectors from scratch, e.g. when the matrix is changed
         in an arbitrary way."""
         eig_result = np.linalg.eig(
@@ -121,11 +133,11 @@ class MatrixTracker(m.Mobject):
         self.eigenvectors = eig_result.eigenvectors[:, ::-1]
         return self
 
-    def _recompute_eig_local(self):
+    def _do_recompute_eig_local(self):
         """Recomputes the eigenvalues and eigenvectors by locally perturbing the current eigenvalues and eigenvectors
         according to Newton's method, thus avoiding reproducing work"""
         # TODO Implement this.
-        return self._recompute_eig()
+        return self._do_recompute_eig()
 
     def init_uniforms(self) -> None:
         super().init_uniforms()
@@ -138,11 +150,19 @@ class MatrixTracker(m.Mobject):
     def set_matrix(self, matrix: np.ndarray):
         self.matrix = matrix
         self.uniforms["matrix"] = matrix.flatten()
-        self._recompute_eig()
+        if self.recompute_eig:
+            self._do_recompute_eig()
         return self
 
     def get_column(self, i: int) -> np.ndarray:
         return self.uniforms["matrix"][i :: self.dim]
+
+    def set_column(self, j: int, col: np.ndarray):
+        self.matrix[:, j] = col
+        self.uniforms["matrix"][j :: self.dim] = col
+        if self.recompute_eig:
+            self._do_recompute_eig()
+        return self
 
     def get_all_eigenvalues(self):
         """Returns a shape (D,) array containing the eigenvalues."""
@@ -167,7 +187,8 @@ class MatrixTracker(m.Mobject):
     def set_value(self, i: int, j: int, val: float | complex):
         self.matrix[i, j] = val
         self.uniforms["matrix"][i * self.dim + j] = val
-        self._recompute_eig()
+        if self.recompute_eig:
+            self._do_recompute_eig()
         return self
 
     def slide_value(self, i: int, j: int, val: float | complex):
@@ -184,6 +205,16 @@ class MatrixTracker(m.Mobject):
         )
         return v.animate.set_value(1.0)
 
+    def slide_column(self, j: int, col: np.ndarray):
+        """Continuously changes a single column of the matrix."""
+        self.clear_updaters()
+        init_col = self.get_column(j)
+        v = m.ValueTracker(0)
+        self.add_updater(
+            lambda mobj: mobj.set_column(j, init_col + (col - init_col) * v.get_value())
+        )
+        return v.animate.set_value(1.0)
+
     def slide_matrix(self, mat: np.ndarray):
         """Continuously vary the entire matrix in a linear fashion towards the given target matrix."""
         self.clear_updaters()
@@ -197,7 +228,8 @@ class MatrixTracker(m.Mobject):
 
     def increment_value(self, i: int, j: int, d_value: float | complex) -> None:
         self.set_value(i, j, self.get_value(i, j) + d_value)
-        self._recompute_eig_local()
+        if self.recompute_eig:
+            self._do_recompute_eig_local()
         return self
 
     def matmul(self, vec: np.ndarray):
@@ -229,7 +261,7 @@ class SymmetricMatrixTracker(MatrixTracker):
         self._recompute_eig()
         return self
 
-    def _recompute_eig(self):
+    def _do_recompute_eig(self):
         """Recomputes the eigenvalues and eigenvectors from scratch, e.g. when the matrix is changed
         in an arbitrary way."""
         eig_result = np.linalg.eigh(
@@ -240,11 +272,11 @@ class SymmetricMatrixTracker(MatrixTracker):
         self.eigenvectors = eig_result.eigenvectors[:, ::-1]
         return self
 
-    def _recompute_eig_local(self):
+    def _do_recompute_eig_local(self):
         """Recomputes the eigenvalues and eigenvectors by locally perturbing the current eigenvalues and eigenvectors
         according to Newton's method, thus avoiding reproducing work"""
         # TODO Implement this.
-        return self._recompute_eig()
+        return self._do_recompute_eig()
 
 
 ### For visualization of the Spectral theorem in R^3
@@ -300,11 +332,64 @@ Convolutionw with A(t) defines yet another linear transformation. I think this o
     """
 
 
+def make_column_vectors(mat: MatrixTracker, t_axes: m.ThreeDAxes) -> m.VGroup:
+    """Construct column vectors of a matrix, i.e. the images of the three unit basis vectors"""
+    assert mat.dim <= 3
+    e0 = (
+        m.Arrow()
+        .set_color(m.BLUE)
+        .add_updater(
+            lambda mobj: mobj.put_start_and_end_on(
+                t_axes.c2p(*m.ORIGIN),
+                t_axes.c2p(*mat.get_column(0).real),
+            )
+        )
+    )
+
+    e1 = (
+        m.Arrow()
+        .set_color(m.BLUE)
+        .add_updater(
+            lambda mobj: mobj.put_start_and_end_on(
+                t_axes.c2p(*m.ORIGIN),
+                t_axes.c2p(*mat.get_column(1).real),
+            )
+        )
+    )
+    e2 = (
+        m.Arrow()
+        .set_color(m.BLUE)
+        .add_updater(
+            lambda mobj: mobj.put_start_and_end_on(
+                t_axes.c2p(*m.ORIGIN),
+                t_axes.c2p(*mat.get_column(2).real),
+            )
+        )
+    )
+    return m.VGroup(e0, e1, e2)
+
+
 ### Scenes
+
+
+class PlaneSpannedBy(m.Surface):
+    def __init__(
+        self, uvec: np.ndarray, vvec: np.ndarray, origin: np.ndarray, **kwargs
+    ):
+        self.origin = origin
+        self.uvec = uvec
+        self.vvec = vvec
+        super().__init__(**kwargs)
+
+    def uv_func(self, u: float, v: float) -> tuple[float, float, float]:
+        return tuple(u * self.uvec + v * self.vvec + self.origin)
+
+
 class WhatIsSymmetric(m.Scene):
     """Simple explanation of what `symmetric` means for a 2x2 matrix."""
 
     def construct(self):
+        # Set up the 2D axes
         xmax = 6.0
         plane = m.NumberPlane(x_range=(-xmax, xmax, 1.0), y_range=(-xmax, xmax, 1.0))
         self.play(m.ShowCreation(plane))
@@ -319,6 +404,7 @@ class WhatIsSymmetric(m.Scene):
         basis.add(e0, e1)
         self.play(m.ShowCreation(basis))
 
+        # Construct the matrix object
         mat = MatrixTracker(2)
         mat.set_matrix(np.eye(2))
         mat_mobj = m.DecimalMatrix(mat.get_matrix()).move_to((4.5, 4.5, 0))
@@ -333,6 +419,7 @@ class WhatIsSymmetric(m.Scene):
         self.add(mat)
         self.play(m.ShowCreation(mat_mobj))
 
+        # Construct the associated column vectors
         column_vecs = m.VGroup()
         v0 = m.Arrow(plane.c2p(0.0, 0.0), plane.c2p(*mat.get_column(0))).set_color(
             m.BLUE
@@ -395,6 +482,8 @@ class WhatIsSymmetric(m.Scene):
 
         # Slide to a few more random symmetric matrices
         self.play(mat.slide_matrix(2 * make_random_symmetric_matrix(2)))
+
+        #
         self.embed()
 
 
@@ -415,7 +504,161 @@ class GramSchmidt(m.Scene):
     on the side."""
 
     def construct(self):
-        pass
+        # Dimension 3
+        d = 3
+
+        self.camera.frame.move_to((0, 0, 8))
+
+        # Create the underlying matrix whose columns are the vectors we're operating on
+        mat = MatrixTracker(d)
+        # mat.set_matrix(3 * np.random.randn(3, 3))
+        mat.set_matrix(np.array([[3, 0.5, 1], [1, 2, 1], [0.5, 1.5, 3]]))
+
+        ### Symbolic half of the picture
+        symbolic_part = m.Group()
+
+        # Instantiate a displayed decimal matrix object which tracks with mat
+        def mat_updater(mobj: m.DecimalMatrix):
+            for i in range(d):
+                for j in range(d):
+                    mobj.mob_matrix[i][j].set_value(mat.get_value(i, j))
+
+        mat_mobj = m.DecimalMatrix(mat.get_matrix()).add_updater(mat_updater)
+        symbolic_part.add(mat_mobj)
+        symbolic_part.move_to((-5, 3, 0))
+        symbolic_part.fix_in_frame()
+        symbolic_part.scale(0.8)
+
+        # Axes on which everything will be placed. Will be centered at the scene origin.
+        axes = m.ThreeDAxes(
+            (-4, 4),
+            (-4, 4),
+            (-4, 4),
+            axis_config={"include_ticks": False, "include_tip": True},
+        )
+        axes.add_axis_labels(font_size=36)
+        axes.move_to((0, 0, 0))
+
+        # axes.rotate(20 * m.DEGREES, (1, 0, 0))
+        # axes.rotate(10 * m.DEGREES, (0, 1, 0))
+
+        # Column vectors which track with matrix
+        column_vecs = make_column_vectors(mat, axes)
+
+        # Do Gram-Schmidt to produce an orthogonal basis
+        orth_vectors = [mat.get_column(0).copy()]
+        projections_to_subspaces = [np.zeros(d)]
+        for i in range(1, d):
+            w = mat.get_column(i).copy()
+            proj = np.zeros(d)
+            for j in range(i):
+                x = orth_vectors[j]
+                proj += x * w.dot(x) / x.dot(x)
+            orth_vectors.append(w - proj)
+            projections_to_subspaces.append(proj)
+
+        # Add the matrix objects to the scene
+        self.add(mat)
+        self.add(mat_mobj)
+
+        # Add the axes
+        self.add(axes)
+
+        # Draw the three vectors one-by-one
+        for i in range(3):
+            self.play(
+                m.FadeIn(column_vecs[i]),
+                mat_mobj.get_column(i).animate.set_color(m.BLUE),
+            )
+            self.play(
+                mat_mobj.get_column(i).animate.set_color(m.WHITE),
+            )
+
+        self.wait()
+
+        self.save_state()
+        # self.embed()
+
+        # Animate it
+        for i in range(1, d):
+            # Draw a dotted line from the i-th vector to the subspace spanned by vectors
+            # 0, 1, ..., (i-1), and the projected vector
+            p = projections_to_subspaces[i]
+            v = mat.get_column(i)
+            w = orth_vectors[i]
+            proj_pt = m.Dot(axes.c2p(*p)).set_color(m.RED).set_opacity(0.8)
+            dashed_line = (
+                m.DashedLine(axes.c2p(*mat.get_column(i)), axes.c2p(*p))
+                .set_color(m.YELLOW)
+                .set_opacity(0.8)
+            )
+
+            if i == 1:
+                # Indicate the orthogonal line
+                orth_space = m.Line(axes.c2p(*(-1.5 * p)), axes.c2p(*(1.5 * p)))
+                orth_space.set_opacity(0.3)
+                orth_space.set_color(m.GREEN)
+                orth_space.add_updater(
+                    lambda mobj: mobj.put_start_and_end_on(
+                        axes.c2p(*(-1.5 * p)), axes.c2p(*(1.5 * p))
+                    )
+                )
+                self.play(
+                    m.ShowCreation(proj_pt),
+                    m.ShowCreation(dashed_line),
+                    m.VFadeIn(orth_space),
+                )
+            elif i == 2:
+                # Indicate the orthogonal plane
+                orth_space = PlaneSpannedBy(
+                    uvec=axes.c2p(*orth_vectors[0]),
+                    vvec=axes.c2p(*p),
+                    origin=axes.c2p(*m.ORIGIN),
+                    u_range=(-1.0, 1.0),
+                    v_range=(-1.0, 1.0),
+                ).set_opacity(0.2)
+                mesh = m.SurfaceMesh(orth_space).set_stroke(m.BLUE, 1, opacity=0.5)
+                self.play(
+                    m.ShowCreation(proj_pt),
+                    m.ShowCreation(dashed_line),
+                    m.FadeIn(orth_space),
+                    m.FadeIn(mesh),
+                )
+
+            # Slide to eliminate the projection
+            tracker = m.ValueTracker(1.0)
+            proj_pt.add_updater(
+                lambda mobj: mobj.move_to(axes.c2p(*(p * tracker.get_value())))
+            )
+            dashed_line.add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    axes.c2p(*(w + p * tracker.get_value())),
+                    axes.c2p(*(p * tracker.get_value())),
+                )
+            )
+
+            mat.add_updater(
+                lambda mobj: mobj.set_column(
+                    i,
+                    orth_vectors[i] + projections_to_subspaces[i] * tracker.get_value(),
+                )
+            )
+            self.play(
+                tracker.animate.set_value(0.0),
+                # self.frame.animate.rotate(-15 * m.DEGREES, (0,1,0))
+                # axes.animate.rotate(15 * m.DEGREES, (0, 1, 0)),
+                # rate_func=m.linear,
+                run_time=2.0,
+            )
+            mat.clear_updaters()
+            self.remove(proj_pt, dashed_line, orth_space)
+            if i == 2:
+                self.remove(mesh)
+
+            # TODO Add an elbow
+
+        self.save_state()
+        self.embed()
 
 
 class ComputeLegendrePolynomials(m.Scene):
@@ -520,42 +763,6 @@ class SpectralTheorem(m.Scene):
             )
         )
         return m.VGroup(v0, v1, v2)
-
-    def make_column_vectors(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
-        """Construct column vectors of a matrix, i.e. the images of the three unit basis vectors"""
-        assert mat.dim <= 3
-        e0 = (
-            m.Arrow()
-            .set_color(m.BLUE)
-            .add_updater(
-                lambda mobj: mobj.put_start_and_end_on(
-                    t_axes.c2p(*m.ORIGIN),
-                    t_axes.c2p(*mat.get_column(0).real),
-                )
-            )
-        )
-
-        e1 = (
-            m.Arrow()
-            .set_color(m.BLUE)
-            .add_updater(
-                lambda mobj: mobj.put_start_and_end_on(
-                    t_axes.c2p(*m.ORIGIN),
-                    t_axes.c2p(*mat.get_column(1).real),
-                )
-            )
-        )
-        e2 = (
-            m.Arrow()
-            .set_color(m.BLUE)
-            .add_updater(
-                lambda mobj: mobj.put_start_and_end_on(
-                    t_axes.c2p(*m.ORIGIN),
-                    t_axes.c2p(*mat.get_column(2).real),
-                )
-            )
-        )
-        return m.VGroup(e0, e1, e2)
 
     def make_heatmap(self, mat: MatrixTracker, t_axes: m.ThreeDAxes):
         """Makes a heatmap over the unit sphere depicting the value of f(v) = <v, Av>"""
@@ -670,7 +877,7 @@ class SpectralTheorem(m.Scene):
         axes.add_axis_labels(font_size=36)
         geometric_part.add(axes)
 
-        column_vecs = self.make_column_vectors(mat, axes)
+        column_vecs = make_column_vectors(mat, axes)
         eigenvecs = self.make_eigenvectors(mat, axes)
         heatmap = self.make_heatmap(mat, axes)
         v, w, v_arrow, w_arrow = self.make_flow_vector(mat, axes)
