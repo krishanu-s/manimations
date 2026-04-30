@@ -62,18 +62,29 @@ class TestingComplexFunctions(m.Scene):
 
     def construct(self):
         self._configure_scene()
-
-        # Set up axes
         self.frame.reorient(0, 0, 0)
-        xmin = -2.0
-        xmax = 2.0
-        ymin = -2.0
-        ymax = 2.0
-        axes = m.Axes(x_range=(xmin, xmax), y_range=(ymin, ymax))
-        bounding_box = m.Rectangle(xmax - xmin, ymax - ymin)
-        bounding_box.move_to((0, 0, 0))
-        self.play(m.ShowCreation(axes), m.ShowCreation(bounding_box))
 
+        # Axes size
+        xmin = -5.0
+        xmax = 5.0
+        ymin = -5.0
+        ymax = 5.0
+
+        # Function resolution
+        nx, ny = 101, 101
+
+        # First complex function display
+        axes = m.Axes(x_range=(xmin, xmax), y_range=(ymin, ymax))
+        bbox = m.Rectangle(xmax - xmin, ymax - ymin)
+        bbox.move_to((0, 0, 0))
+        cx_frame = VGroup(axes, bbox)
+        self.play(m.ShowCreation(cx_frame))
+
+        # Second complex function display
+        cx_frame_2 = cx_frame.copy().next_to(cx_frame, RIGHT, 2.0)
+        self.play(m.ShowCreation(cx_frame_2))
+
+        # Populating the first one
         # Radius and center of domain as a disk
         r = m.ValueTracker(5.0)
         cx = m.ValueTracker(0.0)
@@ -83,33 +94,88 @@ class TestingComplexFunctions(m.Scene):
         px = m.ValueTracker(1.0)
         py = m.ValueTracker(0.0)
 
-        # Define a background function
-        nx, ny = 101, 101
-
         # A simple rational function, vectorized
         def cx_fn(z):
             # return np.exp(np.pow(z, -1))
             # return z
             return np.pow(z - complex(1, 0), -1)
 
-        heatmap = m.PlaneHeatMap((xmin, xmax), (ymin, ymax), (nx, ny))
+        heatmap = PlaneHeatMap((xmin, xmax), (ymin, ymax), (nx, ny)).move_to(
+            axes.get_center()
+        )
         heatmap.init_heatmap(m.HeatMapType.COMPLEX)
         heatmap.set_background_opacity(0.3)
-        # Basic function
-        heatmap.set_f(lambda z: np.pow(z - complex(px.get_value(), py.get_value()), -1))
+        heatmap.set_f(lambda z: np.sin(PI * z) / PI)
+
+        heatmap_2 = PlaneHeatMap((xmin, xmax), (ymin, ymax), (nx, ny)).move_to(
+            cx_frame_2[1].get_center()
+        )
+        heatmap_2.init_heatmap(m.HeatMapType.COMPLEX)
+        heatmap_2.set_background_opacity(0.3)
+        heatmap_2.set_f(lambda z: z)
+
+        # sin(pi * z) / pi on the left, z on the right
+        self.play(ShowCreation(heatmap), ShowCreation(heatmap_2))
+        sin_tex = Tex(
+            "\\frac{\\sin(\\pi z)}{\\pi} = z \\prod\\limits_{n=1}^{\infty}\\left(1 - \\frac{z^2}{n^2}\\right)"
+        ).next_to(cx_frame, UP, 1.0)
+        self.play(ShowCreation(sin_tex))
+
+        # Show successive Hadamard approximations
+        for n in range(1, 7):
+            self.play(
+                heatmap_2.animate.set_f(
+                    lambda z: reduce(
+                        (lambda x, y: x * y),
+                        [z, *[1 - np.pow(z, 2) / (i**2) for i in range(1, n)]],
+                    )
+                )
+            )
+
+        # G(z) function
+        gamma_tex = Tex(
+            "\\Gamma(z) = \\frac{e^{\\gamma z}}{z}\\prod\\limits_{n=1}^{\infty} e^{\\frac{z}{n}}\\left(1 + \\frac{z}{n}\\right)^{-1}"
+        ).next_to(cx_frame, UP, 1.0)
+        self.play(heatmap.animate.set_f(gamma_func), Transform(sin_tex, gamma_tex))
+        g = sum(1 / n for n in range(1, 5000)) - np.log(5000)
+        for n in range(1, 7):
+            self.play(
+                heatmap_2.animate.set_f(
+                    lambda z: reduce(
+                        (lambda x, y: x * y),
+                        [
+                            np.pow(z, -1),
+                            np.exp(-g * z),
+                            *[
+                                np.exp(z / i) * np.pow(1 + z / i, -1)
+                                for i in range(1, n)
+                            ],
+                        ],
+                    )
+                )
+            )
 
         # WP function
         # heatmap.set_f(lambda z: p_func(z, complex(1 / 4, np.sqrt(3) / 4)))
 
-        heatmap.add_updater(
-            lambda mobj: mobj.set_domain(
-                lambda z: (z.real - cx.get_value()) ** 2
-                + (z.imag - cy.get_value()) ** 2
-                < r.get_value() ** 2
-            )
-        )
+        # heatmap.add_updater(
+        #     lambda mobj: mobj.set_domain(
+        #         lambda z: (z.real - cx.get_value()) ** 2
+        #         + (z.imag - cy.get_value()) ** 2
+        #         < r.get_value() ** 2
+        #     )
+        # )
 
         self.embed()
+
+
+## CH 0 portions
+
+## CH 1 portions
+# - Define a complex derivative formally.
+# - Conformality intuition.
+# - Examples, and non-examples.
+# - Complex derivative as itself another *function*
 
 
 class WhatIsAComplexDerivative(m.Scene):
@@ -131,29 +197,73 @@ class WhatIsAComplexDerivative(m.Scene):
         pass
 
 
-class GoursatCauchyTheorem(Scene):
-    """
-    Proof of Goursat's theorem -- if f: U -> C is complex-differentiable on all of U, then the integral
-    around any closed contour in U is equal to zero. We prove it for triangles, and then triangulate."""
+## CH 2 portions
+
+## CH 2 portions
+# - Complex integration along a path. Path-dependence from a to b is a new phenomenon.
+# - If a function f is the complex derivative of some other function, then its integral is path-independent. Equivalently,
+# integral around contours is zero.
+# - Goal is to show that if a function f itself has a complex derivative, then integral around contours is zero.
+# This is Goursat's theorem.
+
+
+class WhatIsComplexIntegration(Scene):
+    """Let's say that you have a complex-valued function defined on the plane -- meaning that it takes a complex
+    value at every point."""
 
     def construct(self):
-        # Fill opacity for integrated regions
-        INT_FILL_OPACITY = 0.2
+        pass
 
-        # Set the initial vertices
+
+class GoursatTheorem(Scene):
+    """
+    Proof of Goursat's theorem -- if f: U -> C is complex-differentiable on all of U, then the integral
+    around any closed contour in U is equal to zero. We prove it for triangles, and then for an arbitrary
+    contour we triangulate."""
+
+    # Inset for arrows going around the interior of a contour
+    CONTOUR_ARROW_GAP = 0.15
+
+    # Fill opacity for integrated regions
+    INT_FILL_OPACITY = 0.2
+
+    def make_arrows(self, vxs: list[np.ndarray], thickness: float = 3.0):
+        """Makes arrows going around the polygon with the given vertices, indicating a contour integral.
+        Sets the arrows slightly inside the contour."""
+        n = len(vxs)
+        centroid = sum(vxs) / n
+        c = self.CONTOUR_ARROW_GAP
+        return [
+            Arrow(
+                vxs[i] * (1 - c) + centroid * c,
+                vxs[(i + 1) % n] * (1 - c) + centroid * c,
+                thickness=thickness,
+                buff=0.0,
+            ).set_color(BLUE)
+            for i in range(n)
+        ]
+
+    def construct(self):
+        INT_FILL_OPACITY = self.INT_FILL_OPACITY
+
+        # Write the theorem to be proven
+        thm_statement = Tex("\\int_C f(z)dz = 0").move_to((-3, 3, 0)).fix_in_frame()
+
+        # Set the initial vertices for the triangle
         vertices = [
             np.array([-2.5, -1, 0]),
             np.array([-0.5, 2, 0]),
             np.array([3.0, -1, 0]),
         ]
+        n_vertices = len(vertices)
 
-        def make_triangle_vertices(*d_values):
+        def make_polygon_vertices(*d_values):
             """Each sequence of integers (d_1, d_2, ..., d_n) in {0, 1, 2, 3}^n
             specifies one of the subdivided triangles in Goursat's theorem.
             Returns the vertices of that triangle, in the same planar
             orientation as the original."""
             # Start with the initial triangle vertices
-            vxs = [vertices[0], vertices[1], vertices[2]]
+            vxs = vertices.copy()
 
             # 0 = scale down by 1/2 factor towards v0
             # 1 = scale down by 1/2 factor towards v1
@@ -180,45 +290,26 @@ class GoursatCauchyTheorem(Scene):
 
             return vxs
 
-        def make_arrows(triangle_vxs: list[np.ndarray], thickness: float = 3.0):
-            """Makes three arrows going around the triangle, indicating a contour integral"""
-            centroid = sum(triangle_vxs) / 3
-            return [
-                Arrow(
-                    triangle_vxs[i] * 0.85 + centroid * 0.15,
-                    triangle_vxs[(i + 1) % 3] * 0.85 + centroid * 0.15,
-                    thickness=thickness,
-                    buff=0.0,
-                ).set_color(BLUE)
-                for i in range(3)
-            ]
-
-        # Hard-code the sequence of triangles
+        # Hard-code the sequence of subcontours used
         d_seq = (0, 2, 3, 1, 2, 0, 3)
 
-        # Calculate the final convergent point
-        z = sum(make_triangle_vertices(*d_seq)) / 3
-        z_pt = Dot(z, radius=0.05).set_color(RED)
-
         # Make the full scale version of the triangle and contour
-        a0 = VGroup(*make_arrows(vertices))
+        a0 = VGroup(*self.make_arrows(vertices))
         t0 = Polygon(*vertices).set_style(
             fill_opacity=INT_FILL_OPACITY, fill_color=BLUE
         )
+        t0_label = Tex("C").next_to(t0, RIGHT, 0.2)
+        self.play(ShowCreation(a0), ShowCreation(t0), ShowCreation(t0_label))
 
-        # Put the first iteration
-
-        self.play(ShowCreation(a0), ShowCreation(t0))
-
-        # Make the second iteration
+        # Make the first iteration
         t1 = VGroup()
         a1 = VGroup()
         for d in range(4):
-            triangle_vxs = make_triangle_vertices(d)
-            a1.add(VGroup(*make_arrows(triangle_vxs, thickness=1.2)))
+            triangle_vxs = make_polygon_vertices(d)
+            a1.add(VGroup(*self.make_arrows(triangle_vxs, thickness=1.2)))
             t1.add(
                 Polygon(*triangle_vxs).set_style(
-                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE
+                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE, stroke_width=4.0
                 )
             )
 
@@ -226,30 +317,38 @@ class GoursatCauchyTheorem(Scene):
         # TODO A better option is to draw this triangle to the right
         self.play(FadeOut(t0), FadeOut(a0), FadeIn(t1), FadeIn(a1))
 
+        # Label the one with the largest integral
+        t1_label = Tex("T^{(1)}").move_to(t1[d_seq[0]].get_center())
+
         # Make only one of the triangles solid-filled
         self.play(
             *[
                 t1[d].animate.set_style(fill_opacity=0.0)
                 for d in range(4)
                 if d != d_seq[0]
-            ]
+            ],
+            FadeIn(t1_label),
         )
         self.play(*[FadeOut(a1[d]) for d in range(4) if d != d_seq[0]])
 
-        # Make the third iteration
+        # Make the second iteration
         t2 = VGroup()
         a2 = VGroup()
         for d1 in range(4):
-            triangle_vxs = make_triangle_vertices(d_seq[0], d1)
-            a2.add(VGroup(*make_arrows(triangle_vxs, thickness=0.5)))
+            triangle_vxs = make_polygon_vertices(d_seq[0], d1)
+            a2.add(VGroup(*self.make_arrows(triangle_vxs, thickness=0.5)))
             t2.add(
                 Polygon(*triangle_vxs).set_style(
-                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE
+                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE, stroke_width=1.5
                 )
             )
 
         # Transform
+        self.play(FadeOut(t1_label))
         self.play(FadeOut(t1[d_seq[0]]), FadeOut(a1[d_seq[0]]), FadeIn(t2), FadeIn(a2))
+
+        # Label the one with the largest integral
+        t2_label = Tex("T^{(2)}", font_size=18).move_to(t2[d_seq[1]].get_center())
 
         # Make only one of the triangles solid-filled
         self.play(
@@ -257,19 +356,21 @@ class GoursatCauchyTheorem(Scene):
                 t2[d].animate.set_style(fill_opacity=0.0)
                 for d in range(4)
                 if d != d_seq[1]
-            ]
+            ],
+            FadeIn(t2_label),
         )
         self.play(*[FadeOut(a2[d]) for d in range(4) if d != d_seq[1]])
 
         # On and on for 3, ...
+        self.play(FadeOut(t2_label))
         t3 = VGroup()
         a3 = VGroup()
         for d2 in range(4):
-            triangle_vxs = make_triangle_vertices(d_seq[0], d_seq[1], d2)
-            a3.add(VGroup(*make_arrows(triangle_vxs, thickness=0.5)))
+            triangle_vxs = make_polygon_vertices(d_seq[0], d_seq[1], d2)
+            a3.add(VGroup(*self.make_arrows(triangle_vxs, thickness=0.5)))
             t3.add(
                 Polygon(*triangle_vxs).set_style(
-                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE
+                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE, stroke_width=1.5
                 )
             )
 
@@ -294,14 +395,13 @@ class GoursatCauchyTheorem(Scene):
         t4 = VGroup()
         a4 = VGroup()
         for d3 in range(4):
-            triangle_vxs = make_triangle_vertices(d_seq[0], d_seq[1], d_seq[2], d3)
-            a4.add(VGroup(*make_arrows(triangle_vxs, thickness=0.5)))
+            triangle_vxs = make_polygon_vertices(d_seq[0], d_seq[1], d_seq[2], d3)
+            a4.add(VGroup(*self.make_arrows(triangle_vxs, thickness=0.5)))
             t4.add(
                 Polygon(*triangle_vxs).set_style(
-                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE
+                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE, stroke_width=1.5
                 )
             )
-
         self.play(
             FadeOut(t3[d_seq[2]]),
             FadeOut(a3[d_seq[2]]),
@@ -309,7 +409,6 @@ class GoursatCauchyTheorem(Scene):
             FadeIn(a4),
             run_time=0.5,
         )
-
         self.play(
             *[
                 t4[d].animate.set_style(fill_opacity=0.0)
@@ -319,8 +418,34 @@ class GoursatCauchyTheorem(Scene):
         )
         self.play(*[FadeOut(a4[d]) for d in range(4) if d != d_seq[3]], run_time=0.5)
 
-        # For the rest of the way, just remove the arrows and put in the triangle bisections
-        # TODO
+        # ... 5, ...
+        t5 = VGroup()
+        a5 = VGroup()
+        for d4 in range(4):
+            triangle_vxs = make_polygon_vertices(
+                d_seq[0], d_seq[1], d_seq[2], d_seq[3], d4
+            )
+            a5.add(VGroup(*self.make_arrows(triangle_vxs, thickness=0.5)))
+            t5.add(
+                Polygon(*triangle_vxs).set_style(
+                    fill_opacity=INT_FILL_OPACITY, fill_color=BLUE, stroke_width=1.5
+                )
+            )
+        self.play(
+            FadeOut(t4[d_seq[3]]),
+            FadeOut(a4[d_seq[3]]),
+            FadeIn(t5),
+            FadeIn(a5),
+            run_time=0.5,
+        )
+        self.play(
+            *[
+                t5[d].animate.set_style(fill_opacity=0.0)
+                for d in range(4)
+                if d != d_seq[4]
+            ]
+        )
+        self.play(*[FadeOut(a5[d]) for d in range(4) if d != d_seq[4]], run_time=0.5)
 
         # Then show formulas. Key point:
         # - The function breaks into a constant part + linear part + remainder
@@ -331,7 +456,73 @@ class GoursatCauchyTheorem(Scene):
         # Distance from centroid z halves at each point
         # Therefore, the nontrivial portion of the function int (psi(z) * (z-z0)) scales as 1/4 times
         # the supremum of psi(z) around the triangle, which itself goes to 0.
+
+        # Mark the point of convergence
+        z = sum(make_polygon_vertices(*d_seq)) / n_vertices
+        z_pt = Dot(z, radius=0.05).set_color(RED)
+        z_label = Tex("z_0", font_size=30).next_to(z_pt, DOWN, 0.2).set_color(RED)
+        self.play(FadeIn(z_pt), FadeIn(z_label))
+
+        ## Go through all of the triangles in order again, and morph the integral value
+        integral_value = (
+            Tex("\\abs{\\int_{C} f(z)dz}").move_to((0, -2, 0)).fix_in_frame()
+        )
+        bound = Tex("\\le 4\\abs{\\int_{T^{(1)}} f(z)dz}").next_to(
+            integral_value, RIGHT, 0.15
+        )
+        bound_2 = Tex("\\le 4^2\\abs{\\int_{T^{(2)}} f(z)dz}").next_to(
+            integral_value, RIGHT, 0.15
+        )
+        bound_3 = Tex("\\le 4^3\\abs{\\int_{T^{(3)}} f(z)dz}").next_to(
+            integral_value, RIGHT, 0.15
+        )
+        bound_n = Tex("\\le 4^n\\abs{\\int_{T^{(n)}} f(z)dz}").next_to(
+            integral_value, RIGHT, 0.15
+        )
+
+        # Write down the integral
+        self.play(ShowCreation(integral_value))
+
+        # Unwind all the way back up
+        self.play(FadeOut(t5), FadeOut(a5), FadeIn(t4[d_seq[3]]), run_time=0.3)
+        self.play(FadeOut(t4), FadeIn(t3[d_seq[2]]), run_time=0.3)
+        self.play(FadeOut(t3), FadeIn(t2[d_seq[1]]), run_time=0.3)
+        self.play(FadeOut(t2), FadeIn(t1[d_seq[0]]), run_time=0.3)
+        self.play(FadeOut(t1), FadeIn(t0), run_time=0.3)
         self.embed()
+
+        # Write down the bounds, and restrict to the triangles in order
+
+        self.play(ShowCreation(bound), FadeOut(t0), FadeIn(t1), FadeIn(t1_label))
+
+        self.play(
+            Transform(bound, bound_2),
+            FadeOut(t1[d_seq[0]]),
+            FadeIn(t2),
+            FadeIn(t2_label),
+            FadeOut(t1_label),
+        )
+
+        self.play(
+            Transform(bound, bound_3),
+            FadeOut(t2[d_seq[1]]),
+            FadeIn(t3),
+            FadeOut(t2_label),
+        )
+
+        self.play(Transform(bound, bound_n), FadeOut(t3[d_seq[2]]), FadeIn(t4))
+        self.play(FadeOut(t4[d_seq[3]]), FadeIn(t5))
+
+        #
+
+        self.embed()
+
+
+## CH 3 portions
+# - Integral of 1/z
+# - Convergence of power series in a disk.
+# - Cauchy residue formula.
+# - Analytic continuation
 
 
 class InfinitelyDifferentiable(m.Scene):
@@ -356,14 +547,11 @@ class PowerSeries(m.Scene):
         pass
 
 
-class ContourIntegrals(m.Scene):
-    """
-    Integral around a closed contour where interior is holomorphic, is zero.
-    Depict proof of this for triangles (Goursat's theorem) and then triangulate an arbitrary contour.
-    """
-
-    def construct(self):
-        pass
+## CH 4
+# - Types of singularities, and rates of growth, with examples
+# - Key example of 1/z, and residue calculus
+# - The Riemann sphere
+# - Branch cuts, inverse trig, logarithms, ...
 
 
 class ResidueCalculus(m.Scene):
@@ -431,6 +619,14 @@ class AnalyticContinuation(m.ThreeDScene):
         domain_pts = heatmap.data["point"].copy()
 
         self.embed()
+
+
+## CH 5
+# - The solution to the Basel problem which involves an infinite factorization of sin(z)
+# - Show successive polynomial approximations of sin(z) with more and more roots
+# - Do the same for the Gamma
+
+## CH 6
 
 
 class GammaFunction(m.Scene):
