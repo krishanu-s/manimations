@@ -624,9 +624,10 @@ class AnalyticContinuation(m.ThreeDScene):
 ## CH 5
 # - The solution to the Basel problem which involves an infinite factorization of sin(z)
 # - Show successive polynomial approximations of sin(z) with more and more roots
-# - Do the same for the Gamma
+# - Do the same for the Gamma function (Introduce this function via Fourier analysis?)
 
 ## CH 6
+# -
 
 
 class GammaFunction(m.Scene):

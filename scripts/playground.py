@@ -180,6 +180,52 @@ class FunctionSpaceOnS1(m.Scene):
     - the linear map given by differentiation (needs to be properly defined in higher dimensions) is symplectic."""
 
 
+class InvLaplace(Scene):
+    """Playing around to try to get an animation for the prime number theorem"""
+    def construct(self):
+        # Plane where s lives
+        xmin = -4
+        xmax = 4
+        ymin = -4
+        ymax = 4
+        s_plane = ComplexPlane(x_range=(xmin, xmax, 1.0), y_range=(ymin, ymax, 1.0))
+
+        self.play(ShowCreation(s_plane))
+
+        # s varies from a - i∞ to a + i∞
+        a = 1.2
+        s = ComplexValueTracker(a)
+        s_line = DashedLine(s_plane.n2p(complex(a, xmin)), s_plane.n2p(complex(a, xmax)))
+        s_line_label = Tex("\\mathrm{Re}(s) = a", font_size=36).next_to(s_line, DOWN, 0.5)
+        s_dot = GlowDot(s_plane.n2p(s.get_value())).add_updater(lambda mobj: mobj.move_to(s_plane.n2p(s.get_value())))
+
+        self.play(ShowCreation(s_line), FadeIn(s_line_label), ShowCreation(s_dot))
+
+        # Draw in all the lines, for every s value
+        laplace_rays = [
+            Line(s_plane.n2p(0), s_plane.n2p(3 * complex(a, im_part))).set_style(stroke_width=1.0, stroke_opacity=0.5)
+            for im_part in np.linspace(xmin, xmax, 10)
+        ]
+        self.play(*[ShowCreation(l) for l in laplace_rays])
+
+        # t values from 0 to ∞
+
+        # Plane where the exponentials live
+        exp_plane = ComplexPlane(x_range=(-2, 2, 1.0), y_range=(-2, 2, 1.0)).set_width(8.0).next_to(s_plane, RIGHT, 2.0)
+        self.play(ShowCreation(exp_plane))
+
+        # Images of the laplace rays
+        laplace_spirals = [
+            ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * complex(a, im_part))), t_range=(0, 3, 0.01)).set_style(stroke_width=1.0)
+            for im_part in np.linspace(xmin, xmax, 10)
+        ]
+
+        # Map via (s, t) -> exp(-st)
+        exp_s_curve = ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)
+        exp_s_curve.add_updater(lambda mobj: mobj.become(ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)))
+        self.embed()
+
+
 def vector_to_function_graph(v: np.ndarray):
     """Converts an array of shape (N,) to a bar-graph function on the interval [0, N]."""
     pass
@@ -535,3 +581,236 @@ class MarkovChain(m.Scene):
             )
 
         self.embed()
+
+
+class StirlingsApproximation(Scene):
+    def construct(self):
+        # Flash up Stirling's formula at the top
+        stirlings_formula = (
+            Tex("n! \\approx \\left(\\frac{n}{e}\\right)^n\\sqrt{2\pi n}", font_size=36)
+            .move_to((0, 3, 0))
+            .fix_in_frame()
+        )
+        self.play(ShowCreation(stirlings_formula))
+        self.wait()
+        log_stirlings_formula = (
+            Tex(
+                "\\sum\limits_{k=1}^{n}\\log(k) \\approx \\left( n - \\frac{1}{2} \\right)\\log(n) - n + \\frac{1}{2}\\log(2\\pi)",
+                font_size=36,
+            )
+            .move_to((0, 1, 0))
+            .fix_in_frame()
+        )
+        self.play(ShowCreation(log_stirlings_formula))
+        self.wait()
+        self.play(
+            FadeOut(stirlings_formula), log_stirlings_formula.animate.move_to((0, 3, 0))
+        )
+        n = 4
+
+        self.frame.move_to(np.array([n / 2, -n / 2, 0]))
+        self.frame.set_height(3 * n)
+
+        # Use a diagram of moving rectangles to show the grid sum
+        blue_rectangles = VGroup()
+        for i in range(1, n + 1):
+            blue_rectangles.add(
+                VGroup(
+                    *[
+                        Rectangle(width=1, height=1 / i)
+                        .move_to((0, j / i, 0), DL)
+                        .set_fill(BLUE, 0.4)
+                        .set_style(stroke_width=2.0)
+                        for j in range(i)
+                    ]
+                )
+            )
+        for i in range(n):
+            blue_rectangles[i].move_to((i, 0, 0), DL)
+
+        # Fade in the rectangles and sum value
+        self.play(ShowCreation(blue_rectangles))
+        blue_sum_tex = Tex(f"{n}").next_to(blue_rectangles, UP, 0.5).set_color(BLUE)
+        self.play(FadeIn(blue_sum_tex))
+
+        # Create the grid sum
+        VERTICAL_DISP = 1.5
+        for j in range(1, n):
+            self.play(
+                *[
+                    blue_rectangles[i][j].animate.move_to(
+                        (i, -j * VERTICAL_DISP, 0), DL
+                    )
+                    for i in range(j, n)
+                ]
+            )
+
+        # Add in red rectangles to complement
+        red_rectangles = VGroup()
+        for i in range(1, n):
+            red_rectangles.add(
+                VGroup(
+                    *[
+                        Rectangle(width=1, height=1 / (j + 1))
+                        .move_to((j, -i * VERTICAL_DISP, 0), DL)
+                        .set_fill(RED, 0.4)
+                        .set_style(stroke_width=2.0)
+                        for j in range(i)
+                    ]
+                )
+            )
+        self.play(ShowCreation(red_rectangles))
+
+        # Add in sum values for red rectangles
+        red_sum_labels = VGroup()
+        for i in range(1, n):
+            red_sum_labels.add(
+                Tex(f"H_{i}").next_to(red_rectangles[i - 1], LEFT, 0.5).set_color(RED)
+            )
+        self.play(FadeIn(red_sum_labels))
+
+        # Add in sum values for rows
+        arrows = []
+        row_sum_labels = []
+        for i in range(n):
+            arrows.append(
+                Arrow(
+                    (n + 0.5, 0.5 - i * VERTICAL_DISP, 0),
+                    (n + 1.5, 0.5 - i * VERTICAL_DISP, 0),
+                    buff=0.0,
+                )
+            )
+            row_sum_labels.append(Tex(f"H_{n}").next_to(arrows[-1], RIGHT, 0.5))
+
+        self.play(
+            *[ShowCreation(a) for a in arrows], *[FadeIn(r) for r in row_sum_labels]
+        )
+
+        # Write the main formula
+        harmonic_sum_formula = Tex("n + H_1 + H_2 + \\ldots + H_{n-1} = nH_n").move_to(
+            (n / 2 + 1, -n * VERTICAL_DISP, 0)
+        )
+
+        self.play(FadeIn(harmonic_sum_formula))
+
+        # Zoom out
+        self.play(
+            self.frame.animate.set_height(4 * n),
+        )
+        self.play(
+            self.frame.animate.move_to((-n, -n / 2, 0)),
+        )
+
+        #### Make the integral diagram to relate H_n and the logarithm
+
+        xmin = -1
+        xmax = 6
+        ymin = -1
+        ymax = 4
+        ax = Axes((xmin, xmax), (ymin, ymax)).move_to((-3 * n, -n / 2, 0))
+        graph = ParametricCurve(
+            lambda t: ax.c2p(t, 1 / t, 0), (1 / ymax, xmax, 0.05)
+        ).set_style(stroke_width=1.0)
+        graph_label = Tex("y=\\frac{1}{x}").next_to(graph, UR, -1.5)
+
+        self.play(ShowCreation(ax), ShowCreation(graph), FadeIn(graph_label))
+
+        int_a = 1
+        int_b = xmax - 1
+        quad = (
+            ParametricCurve(lambda t: ax.c2p(t, 1 / t, 0), (1, int_b, 0.05))
+            .add_line_to(ax.c2p(int_b, 0))
+            .add_line_to(ax.c2p(1, 0))
+            .add_line_to(ax.c2p(1, 1))
+            .set_stroke(width=0)
+            .set_fill(GREEN, 0.4)
+        )
+        quad_a_label = Tex("1").move_to(ax.c2p(int_a, -0.5, 0))
+        quad_b_label = Tex("n").move_to(ax.c2p(int_b, -0.5, 0))
+        quad_tex = Tex("\\log(n)").set_color(GREEN).next_to(quad, UP, 0.4)
+        self.play(
+            FadeIn(quad),
+            ShowCreation(quad_a_label),
+            ShowCreation(quad_b_label),
+            FadeIn(quad_tex),
+        )
+
+        fn_dots = [Dot(ax.c2p(i, 1 / i, 0), radius=0.05) for i in range(1, int_b + 1)]
+
+        # Trapezoid approximation
+        quad_traps = [
+            Polygon(
+                ax.c2p(i, 0),
+                ax.c2p(i + 1, 0),
+                ax.c2p(i + 1, 1 / (i + 1)),
+                ax.c2p(i, 1 / i),
+            )
+            .set_fill(RED, 0.2)
+            .set_style(stroke_width=1.0)
+            for i in range(1, int_b)
+        ]
+        self.play(
+            *[ShowCreation(t) for t in quad_traps], *[ShowCreation(d) for d in fn_dots]
+        )
+
+        # Turn trapezoids into rectangles
+        quad_rects = [
+            Rectangle(
+                width=(ax.x_axis.n2p(1 / 2) - ax.x_axis.n2p(0))[0],
+                height=(ax.y_axis.n2p(1) - ax.y_axis.n2p(0))[1],
+            )
+            .move_to(ax.c2p(1, 0), DL)
+            .set_fill(RED, 0.2)
+            .set_style(stroke_width=1.0)
+        ]
+        for i in range(2, int_b):
+            quad_rects.append(
+                Rectangle(
+                    width=(ax.x_axis.n2p(1) - ax.x_axis.n2p(0))[0],
+                    height=(ax.y_axis.n2p(1 / i) - ax.y_axis.n2p(0))[1],
+                )
+                .move_to(ax.c2p(i - 0.5, 0), DL)
+                .set_fill(RED, 0.2)
+                .set_style(stroke_width=1.0)
+            )
+        quad_rects.append(
+            Rectangle(
+                width=(ax.x_axis.n2p(1 / 2) - ax.x_axis.n2p(0))[0],
+                height=(ax.y_axis.n2p(1 / int_b) - ax.y_axis.n2p(0))[1],
+            )
+            .move_to(ax.c2p(int_b - 0.5, 0), DL)
+            .set_fill(RED, 0.2)
+            .set_style(stroke_width=1.0)
+        )
+
+        self.play(*[FadeOut(t) for t in quad_traps], *[FadeIn(r) for r in quad_rects])
+
+        # Add additional portions of rectangles to make it a harmonic number
+        end_rects = [
+            Rectangle(width=0.5, height=1.0)
+            .move_to(ax.c2p(1, 0), DR)
+            .set_fill(YELLOW, 0.4)
+            .set_style(stroke_width=1.0),
+            Rectangle(width=0.5, height=1 / int_b)
+            .move_to(ax.c2p(int_b, 0), DL)
+            .set_fill(YELLOW, 0.4)
+            .set_style(stroke_width=1.0),
+        ]
+        self.play(*[ShowCreation(r) for r in end_rects])
+
+        log_formula = Tex(
+            "\\log(n) \\approx H_n - \\frac{1}{2} - \\frac{1}{2n}"
+        ).next_to(ax, DOWN, 0.5)
+        self.play(FadeIn(log_formula))
+
+        # Draw the connector
+        connector = CurvedDoubleArrow(
+            end_point=harmonic_sum_formula.get_bounding_box_point(LEFT)
+            - np.array([1.0, 0, 0]),
+            start_point=log_formula.get_bounding_box_point(RIGHT)
+            + np.array([1.0, 0, 0]),
+            angle=2 * DEGREES,
+        ).set_style(stroke_width=2.0)
+        self.play(ShowCreation(connector))
+
+        # self.embed()
