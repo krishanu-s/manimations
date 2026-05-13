@@ -1,12 +1,194 @@
 # Dumping ground for new ideas: particularly the most challenging animations which will make their
 # way into other files.
 
+import cmath
 import math
-from typing import Callable
+from collections import deque
+from typing import List, Tuple
 
 import manimlib as m
 import numpy as np
 from manimlib import *
+
+# # ── Poincaré disk helpers ──────────────────────────────────────────────────
+
+# def mobius_add(a: complex, b: complex) -> complex:
+#     """Möbius addition (hyperbolic translation) in the Poincaré disk."""
+#     return (a + b) / (1 + np.conj(a) * b)
+
+
+# def disk_distance_euclidean(h: float) -> float:
+#     """Convert hyperbolic distance h to Euclidean distance from origin."""
+#     return float(np.tanh(h / 2))
+
+
+# def reflect_across_diameter(z: complex, angle: float) -> complex:
+#     """Reflect z across the diameter at given angle from positive x-axis."""
+#     return np.conj(z * np.exp(-1j * angle)) * np.exp(1j * angle)
+
+
+# def reflect_across_geodesic(z: complex, center: complex, radius: float) -> complex:
+#     """Reflect z across a geodesic given by a circle (center, radius)
+#     that is orthogonal to the unit circle."""
+#     return center + (radius ** 2) / np.conj(z - center)
+
+# # ── Fundamental triangle ───────────────────────────────────────────────────
+
+# class FundamentalTriangle:
+#     """Coxeter triangle with angles (π/p, π/2, π/q) for p=6, q=4."""
+
+#     def __init__(self, p: int = 6, q: int = 4):
+#         self.p = p
+#         self.q = q
+#         self.alpha = np.pi / p   # π/6
+#         self.gamma = np.pi / q   # π/4
+#         self._compute_vertices()
+
+#     def _compute_vertices(self):
+#         """Compute (A, B, C) in the Poincaré disk.
+
+#         A is at origin (angle π/6).  B is on the positive real axis (right
+#         angle).  C is in the upper half-plane at angle α from the x-axis
+#         (angle π/4).
+#         """
+#         α, γ = self.alpha, self.gamma
+
+#         # Hypotenuse AC
+#         h_AC = float(np.arccosh(1.0 / (np.tan(α) * np.tan(γ))))
+
+#         # Leg AB: cosh(AB) = cos(α) / sin(γ)
+#         h_AB = float(np.arccosh(np.cos(α) / np.sin(γ)))
+
+#         self.A = complex(0.0, 0.0)
+#         d_AB = disk_distance_euclidean(h_AB)
+#         self.B = complex(d_AB, 0.0)
+#         d_AC = disk_distance_euclidean(h_AC)
+#         self.C = d_AC * np.exp(1j * α)
+
+
+# # ── Reflection generators ──────────────────────────────────────────────────
+
+# class ReflectionGenerators:
+#     """Three hyperbolic reflections R1, R2, R3 for the (p,q,2) Coxeter group.
+
+#     R1: across side BC  (opposite vertex A)
+#     R2: across side CA  (opposite vertex B)
+#     R3: across side AB  (opposite vertex C)
+#     """
+
+#     def __init__(self, p: int = 6, q: int = 4):
+#         self.tri = FundamentalTriangle(p, q)
+#         A, B, C = self.tri.A, self.tri.B, self.tri.C
+
+#         # R2: diameter at angle α (π/6)
+#         self.theta_R2 = self.tri.alpha
+
+#         # R3: diameter along positive real axis (angle 0)
+#         self.theta_R3 = 0.0
+
+#         # R1: geodesic through B and C (circle orthogonal to unit disk)
+#         Bx, By = B.real, B.imag
+#         Cx, Cy = C.real, C.imag
+
+#         # Solve for circle center c0 = (x, y) orthogonal to unit circle
+#         # that passes through B and C:
+#         #   Re(c̄₀ B) = (|B|² + 1)/2
+#         #   Re(c̄₀ C) = (|C|² + 1)/2
+#         rhs_B = (Bx**2 + By**2 + 1) / 2
+#         rhs_C = (Cx**2 + Cy**2 + 1) / 2
+#         det = Bx * Cy - By * Cx
+
+#         if abs(det) < 1e-14:
+#             self.R1_is_diameter = True
+#             self.theta_R1 = float(np.angle(C))
+#         else:
+#             self.R1_is_diameter = False
+#             x = (rhs_B * Cy - By * rhs_C) / det
+#             y = (Bx * rhs_C - rhs_B * Cx) / det
+#             self.R1_center = complex(float(x), float(y))
+#             self.R1_radius = float(np.sqrt(abs(self.R1_center) ** 2 - 1))
+
+#     def apply_R1(self, z: complex) -> complex:
+#         if self.R1_is_diameter:
+#             return reflect_across_diameter(z, self.theta_R1)
+#         return reflect_across_geodesic(z, self.R1_center, self.R1_radius)
+
+#     def apply_R2(self, z: complex) -> complex:
+#         return reflect_across_diameter(z, self.theta_R2)
+
+#     def apply_R3(self, z: complex) -> complex:
+#         return reflect_across_diameter(z, self.theta_R3)
+
+#     def apply(self, index: int, z: complex) -> complex:
+#         return [self.apply_R1, self.apply_R2, self.apply_R3][index - 1](z)
+
+
+# # ── Word enumeration (tile centers) ────────────────────────────────────────
+
+# def generate_tile_centers(gens: ReflectionGenerators,
+#                            max_depth: int) -> List[complex]:
+#     """BFS over the Coxeter group word graph, yielding unique tile centers."""
+#     seed = complex(0.0, 0.0)
+#     visited = {seed}
+#     centers = [seed]
+#     distance = {seed: 0}
+#     queue = deque([(seed, 0)])  # (center, last_generator_index)
+
+#     while queue:
+#         z, last_gen = queue.popleft()
+#         d = distance.get(z, 0)
+#         if d >= max_depth:
+#             continue
+#         for g in (1, 2, 3):
+#             if g == last_gen:
+#                 continue  # R_g² = I
+#             z_new = gens.apply(g, z)
+#             if z_new not in visited:
+#                 visited.add(z_new)
+#                 distance[z_new] = d + 1
+#                 centers.append(z_new)
+#                 queue.append((z_new, g))
+
+#     return centers
+
+
+# # ── Hexagon construction ───────────────────────────────────────────────────
+
+# def hexagon_vertices(center: complex, radius: float,
+#                       n: int = 6) -> List[complex]:
+#     """Vertices of a regular hyperbolic n-gon centered at `center`."""
+#     angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+#     verts_origin = [radius * np.exp(1j * a) for a in angles]
+#     if abs(center) < 1e-15:
+#         return verts_origin
+#     return [mobius_add(center, v) for v in verts_origin]
+
+
+# # ── Main API ───────────────────────────────────────────────────────────────
+
+# def build_642_tiling(max_depth: int = 4) -> Tuple[np.ndarray, np.ndarray]:
+#     """Generate (6,4,2) tiling.
+
+#     Returns:
+#         centers: (N, 2) array of hexagon centers
+#         vertices: (N, 6, 2) array of hexagon vertices
+#     """
+#     gens = ReflectionGenerators(p=6, q=4)
+
+#     # Vertex distance: cosh(h) = cos(π/6) / sin(π/4)
+#     h_v = float(np.arccosh(np.cos(np.pi / 6) / np.sin(np.pi / 4)))
+#     vdist = disk_distance_euclidean(h_v)
+
+#     centers = generate_tile_centers(gens, max_depth)
+
+#     all_centers = []
+#     all_vertices = []
+#     for c in centers:
+#         verts = hexagon_vertices(complex(c.real, c.imag), vdist)
+#         all_centers.append((c.real, c.imag))
+#         all_vertices.append([(v.real, v.imag) for v in verts])
+
+#     return np.array(all_centers), np.array(all_vertices)
 
 
 def wp(z: complex | np.ndarray, tau: complex, n_pts: int = 10) -> np.ndarray:
@@ -180,8 +362,157 @@ class FunctionSpaceOnS1(m.Scene):
     - the linear map given by differentiation (needs to be properly defined in higher dimensions) is symplectic."""
 
 
+# Convenience functions for the Poincare disk
+class PoincareDisk:
+    z_values: list[complex] = []
+    dots: list[Dot] = []
+    alpha: ComplexValueTracker
+
+    """Poincare disk of radius 1"""
+
+    def __init__(self):
+        self.z_values = []
+        self.dots = []
+        self.alpha = ComplexValueTracker(0.0)
+
+    def set_plane(self, plane: ComplexPlane):
+        self.plane = plane
+
+    def add_points(self, *vals):
+        self.z_values.extend(vals)
+
+
+def _make_hyperbolic_line(
+    endpoints: tuple[complex, complex], plane: ComplexPlane
+) -> ArcBetweenPoints:
+    """Given two unit complex numbers z1 and z2, constructs the arc connecting them in the Poincare disk."""
+    z1, z2 = endpoints
+    assert np.isclose(abs(z1), 1.0)
+    assert np.isclose(abs(z2), 1.0)
+
+    p1 = cmath.phase(z1)
+    p2 = cmath.phase(z2)
+    while p2 < p1:
+        p2 += TAU
+
+    # Ensure z2 is counterclockwise of z1 by less than PI
+    if p2 - p1 > PI:
+        return _make_hyperbolic_line((z2, z1), plane)
+
+    return ArcBetweenPoints(
+        start=plane.n2p(z2), end=plane.n2p(z1), angle=PI - (p2 - p1)
+    ).set_color(RED)
+
+
+class UpperHalfPlane(Mobject):
+    pass
+
+
+class ConformalMaps(Scene):
+    """Experimenting with visualizations of various conformal maps. For example:
+    - Parametrization of maps D_1 -> D_1, by mapping orthogonal circles (parametrized by points outside the disk?)
+    - Parametrization of maps H -> H
+    """
+
+    def construct(self):
+        plane = ComplexPlane((-3, 3, 1.0), (-3, 3, 1.0))
+        # self.add(plane)
+
+        # Draw the disk
+        disk = ParametricCurve(
+            lambda t: plane.n2p(np.exp(complex(0, TAU * t))), (0, 1, 0.01)
+        )
+        self.play(ShowCreation(disk))
+
+        # The function [[-1, a], [-a*, 1]] interchanges 0 and a
+
+        a = ComplexValueTracker(0.0)
+
+        def transform(z: complex) -> complex:
+            # The function [[1, a], [a*, 1]] sends 0 -> a and -a -> 0.
+            return (z + a.get_value()) / (a.get_value().conjugate() * z + 1)
+
+        def get_size(z: complex) -> float:
+            return 1 - abs(z) ** 2
+
+        # Draw some reference points, whose values and size track according to the value of a
+        def make_dot(z: complex, plane: ComplexPlane = plane):
+            dot = Dot(plane.n2p(z), radius=0.05).set_color(BLUE)
+            dot.add_updater(
+                lambda mobj: mobj.move_to(plane.n2p(transform(z))).set_width(
+                    0.1 * get_size(transform(z))
+                )
+            )
+            return dot
+
+        # TODO Make a version which creates a hyperbolic line, with an updater function.
+        # In essence, it is a circular arc passing through two points on the boundary, and where the number
+        # of degrees of the arc is supplementary to the angular distance between those two points.
+        def _make_hyperbolic_line(endpoints: tuple[complex, complex]):
+            """Given two unit complex numbers z1 and z2, constructs the arc connecting them"""
+            z1, z2 = endpoints
+            assert np.isclose(abs(z1), 1.0)
+            assert np.isclose(abs(z2), 1.0)
+
+            p1 = cmath.phase(z1)
+            p2 = cmath.phase(z2)
+            while p2 < p1:
+                p2 += TAU
+
+            # Ensure z2 is counterclockwise of z1 by less than PI
+            if p2 - p1 > PI:
+                return _make_hyperbolic_line((z2, z1))
+
+            return ArcBetweenPoints(
+                start=plane.n2p(z2), end=plane.n2p(z1), angle=PI - (p2 - p1)
+            ).set_color(RED)
+
+        def make_hyperbolic_line(endpoints):
+            arc = _make_hyperbolic_line(endpoints, plane)
+            arc.add_updater(
+                lambda mobj: mobj.become(
+                    _make_hyperbolic_line(
+                        (transform(endpoints[0]), transform(endpoints[1])), plane
+                    )
+                )
+            )
+            return arc
+
+        z_values = [0.0, 0.5, -0.5, complex(0, 0.5), complex(0, -0.5)]
+        # points = map(make_dot, z_values)
+
+        # arcs = map(make_hyperbolic_line, [
+        #     (1.0, complex(0, 1)),
+        #     (-1.0, complex(0, 1)),
+        #     (1.0, complex(0, -1)),
+        #     (-1.0, complex(0, -1)),
+        # ])
+
+        # TODO Will need to refine this some to make something pretty.
+
+        # pts = build_642_tiling(4)
+        # cx_dots = map(make_dot, [complex(*y) for y in pts[0]])
+        # self.play(*[FadeIn(p) for p in cx_dots])
+
+        # self.play(*[FadeIn(p) for p in points])
+        # self.play(*[FadeIn(a) for a in arcs])
+
+        self.embed()
+
+        # Draw a hyperbolic line which can vary
+
+        # Use this to draw gridlines
+
+        # The function [[-1, a], [-a*, 1]] interchanges 0 and a
+        # The function [[1, a], [a*, 1]] sends 0 -> a and -a -> 0. Compose this with a rotation
+
+        # Specify the function as a fractional linear transformation
+        # [[a, b], [b*, a*]] where |a|^2 - |b|^2 = 1, then draw a path in SU(1, 1) from I_2 to it
+
+
 class InvLaplace(Scene):
     """Playing around to try to get an animation for the prime number theorem"""
+
     def construct(self):
         # Plane where s lives
         xmin = -4
@@ -195,34 +526,73 @@ class InvLaplace(Scene):
         # s varies from a - i∞ to a + i∞
         a = 1.2
         s = ComplexValueTracker(a)
-        s_line = DashedLine(s_plane.n2p(complex(a, xmin)), s_plane.n2p(complex(a, xmax)))
-        s_line_label = Tex("\\mathrm{Re}(s) = a", font_size=36).next_to(s_line, DOWN, 0.5)
-        s_dot = GlowDot(s_plane.n2p(s.get_value())).add_updater(lambda mobj: mobj.move_to(s_plane.n2p(s.get_value())))
+        s_line = DashedLine(
+            s_plane.n2p(complex(a, xmin)), s_plane.n2p(complex(a, xmax))
+        )
+        s_line_label = Tex("\\mathrm{Re}(s) = a", font_size=36).next_to(
+            s_line, DOWN, 0.5
+        )
+        s_dot = GlowDot(s_plane.n2p(s.get_value())).add_updater(
+            lambda mobj: mobj.move_to(s_plane.n2p(s.get_value()))
+        )
 
         self.play(ShowCreation(s_line), FadeIn(s_line_label), ShowCreation(s_dot))
 
         # Draw in all the lines, for every s value
         laplace_rays = [
-            Line(s_plane.n2p(0), s_plane.n2p(3 * complex(a, im_part))).set_style(stroke_width=1.0, stroke_opacity=0.5)
+            Line(s_plane.n2p(0), s_plane.n2p(3 * complex(a, im_part))).set_style(
+                stroke_width=1.0, stroke_opacity=0.5
+            )
             for im_part in np.linspace(xmin, xmax, 10)
         ]
         self.play(*[ShowCreation(l) for l in laplace_rays])
 
-        # t values from 0 to ∞
+        # t values from 0 to ∞, and controls
 
         # Plane where the exponentials live
-        exp_plane = ComplexPlane(x_range=(-2, 2, 1.0), y_range=(-2, 2, 1.0)).set_width(8.0).next_to(s_plane, RIGHT, 2.0)
+        # e^{-st} = e^{-(a+bi)t} = e^{-at}e^{-ibt}. Thus, magnitude depends only on t, not position of s
+        exp_plane = (
+            ComplexPlane(x_range=(-4, 4, 1.0), y_range=(-4, 4, 1.0))
+            .set_width(8.0)
+            .next_to(s_plane, RIGHT, 2.0)
+        )
         self.play(ShowCreation(exp_plane))
 
-        # Images of the laplace rays
+        # # Images of the laplace rays
+        # laplace_spirals = [
+        #     ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * complex(a, im_part))), t_range=(0, 3, 0.01)).set_style(stroke_width=1.0)
+        #     for im_part in np.linspace(xmin, xmax, 10)
+        # ]
+
+        # # Map via (s, t) -> exp(-st)
+        # exp_s_curve = ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)
+        # exp_s_curve.add_updater(lambda mobj: mobj.become(ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)))
+
+        # # Fix a value t0
+        # t0 = ValueTracker(1.0)
+
+        # # Make Laplace spiral
+        # spiral = ParametricCurve(lambda t: exp_plane.n2p(np.exp((t0.get_value()-t) * s.get_value() - t0.get_value() * s.get_value().real)), t_range=(0, 6, 0.01)).set_style(stroke_width=1.0).set_color(RED)
+        # spiral.add_updater(lambda mobj: mobj.become(
+        #     ParametricCurve(
+        #         lambda t: exp_plane.n2p(np.exp((t0.get_value()-t) * s.get_value() - t0.get_value() * s.get_value().real)), t_range=(0, 6, 0.01)
+        #     ).set_style(stroke_width=1.0).set_color(RED)
+        # ))
+        # self.play(ShowCreation(spiral))
+
+        t0 = 0.5
         laplace_spirals = [
-            ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * complex(a, im_part))), t_range=(0, 3, 0.01)).set_style(stroke_width=1.0)
-            for im_part in np.linspace(xmin, xmax, 10)
+            ParametricCurve(
+                lambda t: exp_plane.n2p(
+                    np.exp(-t * complex(a, im_part) + t0 * complex(0, im_part))
+                ),
+                t_range=(0, 6, 0.01),
+            )
+            .set_style(stroke_width=1.0)
+            .set_color(RED)
+            for im_part in np.linspace(-10, 10, 20)
         ]
 
-        # Map via (s, t) -> exp(-st)
-        exp_s_curve = ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)
-        exp_s_curve.add_updater(lambda mobj: mobj.become(ParametricCurve(lambda t: exp_plane.n2p(np.exp(-t * s.get_value())), t_range=(0, 2, 0.01)).set_style(stroke_width=1.0)))
         self.embed()
 
 

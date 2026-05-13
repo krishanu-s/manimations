@@ -52,6 +52,133 @@ def gamma_func(arr: np.ndarray):
 # Riemann zeta function, vectorized TODO
 
 
+class LocalGridScene(Scene):
+    """Depicts two coordinate planes related by a complex-analytic function, and the effect
+    of this function on a local coordinate patch around a single point.
+    """
+
+    def construct(self):
+        # Make input axis
+        axes_in = Axes((-5, 5), (-5, 5))
+        self.play(ShowCreation(axes_in))
+
+        # Point around which grid will be defined
+        pt_x = ValueTracker(2.0)
+        pt_y = ValueTracker(2.0)
+
+        # Parameters for local grid of point
+        rad = ValueTracker(0.7)
+        nx, ny = 6, 6
+
+        # Make local grid
+        def make_hline(y: float):
+            l = Line(ORIGIN, ORIGIN).set_style(
+                stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
+            )
+            l.add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    axes_in.c2p(
+                        pt_x.get_value() - rad.get_value(),
+                        pt_y.get_value() + y * rad.get_value(),
+                    ),
+                    axes_in.c2p(
+                        pt_x.get_value() + rad.get_value(),
+                        pt_y.get_value() + y * rad.get_value(),
+                    ),
+                )
+            )
+            return l
+
+        def make_vline(x: float):
+            l = Line(ORIGIN, ORIGIN).set_style(
+                stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
+            )
+            l.add_updater(
+                lambda mobj: mobj.put_start_and_end_on(
+                    axes_in.c2p(
+                        pt_x.get_value() + x * rad.get_value(),
+                        pt_y.get_value() - rad.get_value(),
+                    ),
+                    axes_in.c2p(
+                        pt_x.get_value() + x * rad.get_value(),
+                        pt_y.get_value() + rad.get_value(),
+                    ),
+                )
+            )
+            return l
+
+        def make_local_grid(num_x, num_y):
+            hlines = map(make_hline, np.linspace(-1, 1, num_y + 1))
+            vlines = map(make_vline, np.linspace(-1, 1, num_x + 1))
+            return VGroup(*hlines, *vlines)
+
+        local_grid = make_local_grid(nx, ny)
+        self.play(ShowCreation(local_grid))
+
+        # Make output axes
+        axes_out = Axes((-5, 5), (-5, 5)).next_to(axes_in, RIGHT, 4.0)
+        self.play(ShowCreation(axes_out))
+
+        # Define the mapping function
+        def cx_fn(x: float, y: float) -> tuple[float, float]:
+            z = complex(x, y)
+            fz = z * z
+            return fz.real, fz.imag
+
+        # Make image of the local grid
+        # TODO Make these updaters more efficient.
+        # TODO Make modification of the function possible.
+        def make_hline_img(y: float):
+            l = ParametricCurve(lambda t: ORIGIN, (-1, 1, 0.05)).set_style(
+                stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
+            )
+
+            l.add_updater(
+                lambda mobj: mobj.become(
+                    ParametricCurve(
+                        lambda t: axes_out.c2p(
+                            *cx_fn(
+                                pt_x.get_value() + t * rad.get_value(),
+                                pt_y.get_value() + y * rad.get_value(),
+                            )
+                        ),
+                        (-1, 1, 0.05),
+                    ).set_style(stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE)
+                )
+            )
+            return l
+
+        def make_vline_img(x: float):
+            l = ParametricCurve(lambda t: ORIGIN, (-1, 1, 0.05)).set_style(
+                stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
+            )
+            l.add_updater(
+                lambda mobj: mobj.become(
+                    ParametricCurve(
+                        lambda t: axes_out.c2p(
+                            *cx_fn(
+                                pt_x.get_value() + x * rad.get_value(),
+                                pt_y.get_value() + t * rad.get_value(),
+                            )
+                        ),
+                        (-1, 1, 0.05),
+                    ).set_style(stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE)
+                )
+            )
+            return l
+
+        def make_local_grid_img(num_x, num_y):
+            hlines_img = map(make_hline_img, np.linspace(-1, 1, num_y + 1))
+            vlines_img = map(make_vline_img, np.linspace(-1, 1, num_x + 1))
+            return VGroup(*hlines_img, *vlines_img)
+
+        local_grid_img = make_local_grid_img(nx, ny)
+
+        self.play(ShowCreation(local_grid_img))
+
+        self.embed()
+
+
 class TestingComplexFunctions(m.Scene):
     """Testing ground for animating complex-valued functions"""
 
@@ -60,29 +187,42 @@ class TestingComplexFunctions(m.Scene):
         # self.camera.background_rgba = m.color_to_rgba("#FFFFFF", 1.0)
         pass
 
-    def construct(self):
-        self._configure_scene()
-        self.frame.reorient(0, 0, 0)
-
+    def make_frames(self):
         # Axes size
         xmin = -5.0
         xmax = 5.0
         ymin = -5.0
         ymax = 5.0
 
-        # Function resolution
-        nx, ny = 101, 101
-
         # First complex function display
-        axes = m.Axes(x_range=(xmin, xmax), y_range=(ymin, ymax))
+        self.axes = m.Axes(x_range=(xmin, xmax), y_range=(ymin, ymax))
         bbox = m.Rectangle(xmax - xmin, ymax - ymin)
         bbox.move_to((0, 0, 0))
-        cx_frame = VGroup(axes, bbox)
-        self.play(m.ShowCreation(cx_frame))
+        self.cx_frame = VGroup(self.axes, bbox)
+        self.play(m.ShowCreation(self.cx_frame))
 
         # Second complex function display
-        cx_frame_2 = cx_frame.copy().next_to(cx_frame, RIGHT, 2.0)
-        self.play(m.ShowCreation(cx_frame_2))
+        self.cx_frame_2 = self.cx_frame.copy().next_to(self.cx_frame, RIGHT, 2.0)
+        self.axes_2 = self.cx_frame_2[0]
+        self.play(m.ShowCreation(self.cx_frame_2))
+
+    def construct(self):
+        self._configure_scene()
+        self.frame.reorient(0, 0, 0)
+
+        self.make_frames()
+        self.embed()
+        # self.animate_heatmaps()
+
+    def animate_heatmaps(self):
+        """Do heatmap animations for sin and gamma functions"""
+        # Function resolution
+        nx, ny = 101, 101
+        cx_frame = self.cx_frame
+        cx_frame_2 = self.cx_frame_2
+        axes = self.axes
+        xmin, xmax, _ = self.axes.x_axis.x_range
+        ymin, ymax, _ = self.axes.y_axis.x_range
 
         # Populating the first one
         # Radius and center of domain as a disk
@@ -94,24 +234,20 @@ class TestingComplexFunctions(m.Scene):
         px = m.ValueTracker(1.0)
         py = m.ValueTracker(0.0)
 
-        # A simple rational function, vectorized
-        def cx_fn(z):
-            # return np.exp(np.pow(z, -1))
-            # return z
-            return np.pow(z - complex(1, 0), -1)
-
+        # Initialize heatmaps
         heatmap = PlaneHeatMap((xmin, xmax), (ymin, ymax), (nx, ny)).move_to(
             axes.get_center()
         )
         heatmap.init_heatmap(m.HeatMapType.COMPLEX)
         heatmap.set_background_opacity(0.3)
-        heatmap.set_f(lambda z: np.sin(PI * z) / PI)
 
         heatmap_2 = PlaneHeatMap((xmin, xmax), (ymin, ymax), (nx, ny)).move_to(
             cx_frame_2[1].get_center()
         )
         heatmap_2.init_heatmap(m.HeatMapType.COMPLEX)
         heatmap_2.set_background_opacity(0.3)
+
+        heatmap.set_f(lambda z: np.sin(PI * z) / PI)
         heatmap_2.set_f(lambda z: z)
 
         # sin(pi * z) / pi on the left, z on the right
