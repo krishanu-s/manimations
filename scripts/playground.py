@@ -1,14 +1,462 @@
 # Dumping ground for new ideas: particularly the most challenging animations which will make their
 # way into other files.
 
+from __future__ import annotations
+
 import cmath
 import math
 from collections import deque
-from typing import List, Tuple
+from typing import Annotated, Dict, Iterable, Literal, Tuple, Union
 
 import manimlib as m
 import numpy as np
 from manimlib import *
+
+FloatArray = np.ndarray[int, np.dtype[np.float64]]
+Vect2 = Annotated[FloatArray, Literal[2]]
+Vect3 = Annotated[FloatArray, Literal[3]]
+Vect4 = Annotated[FloatArray, Literal[4]]
+
+
+def rot90(v: Vect3):
+    """Rotates the vector counterclockwise by 90 degrees"""
+    return np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]) @ v
+
+
+def normalize_vect3(v: Vect3):
+    return v / np.linalg.norm(v)
+
+
+class ClosedCurve(VMobject):
+    """A closed curve composed of a finite number of Bezier segments, and also
+    as a function (x, y): [0, 1] -> R^2 represented by Fourier coefficients."""
+
+    # The anchors (x_i, y_i) can be described as values of functions x(t), y(t)
+    # for t in [0, 1], at t = i/n where n is the number of anchors. Given the points (x_i, y_i),
+    # we can interpolate Fourier coefficients for the three functions.
+    fourier_x_cos: list[float] | None = None
+    fourier_x_sin: list[float] | None = None
+    fourier_y_cos: list[float] | None = None
+    fourier_y_sin: list[float] | None = None
+    max_deg: int | None = None
+
+    @property
+    def num_segments(self) -> int:
+        """Returns the number of Bezier segments."""
+        return (len(self.data["point"]) + 1) // 6
+
+    def get_anchor(self, i: int) -> Vect3:
+        """Gets the i-th anchor."""
+        return self.data["point"][6 * i]
+
+    @property
+    def anchors(self) -> list[Vect3]:
+        return [self.data["point"][6 * i] for i in range(self.num_segments)]
+
+    @property
+    def intermediate_anchors(self) -> list[Vect3]:
+        return [self.data["point"][6 * i + 2] for i in range(self.num_segments)]
+
+    def get_normal_vec(self, t: float) -> Vect3:
+        """Constructs the normal vector at parameter t according to the Fourier expansion."""
+        tangent_vec = np.array([self.compute_dx(t), self.compute_dy(t), 0.0])
+        return normalize_vect3(rot90(tangent_vec))
+
+    def do_fourier_interp(self) -> ClosedCurve:
+        """Interpolates Fourier coefficients up to the specified degree."""
+        if not self.max_deg:
+            self.max_deg = self.num_segments // 2
+
+        n = self.num_segments
+        x_values = np.array([a[0] for a in self.anchors])
+        y_values = np.array([a[1] for a in self.anchors])
+
+        self.fourier_x_cos = [np.sum(x_values) / n]
+        self.fourier_y_cos = [np.sum(y_values) / n]
+        self.fourier_x_sin = [0]
+        self.fourier_y_sin = [0]
+        for d in range(1, self.max_deg):
+            cos_vector = np.array([math.cos(TAU * d * i / n) for i in range(n)])
+            sin_vector = np.array([math.sin(TAU * d * i / n) for i in range(n)])
+            self.fourier_x_cos.append(x_values.dot(cos_vector) * 2 / n)
+            self.fourier_y_cos.append(y_values.dot(cos_vector) * 2 / n)
+            self.fourier_x_sin.append(x_values.dot(sin_vector) * 2 / n)
+            self.fourier_y_sin.append(y_values.dot(sin_vector) * 2 / n)
+        self.fourier_x_cos.append(sum((-1) ** i * x_values[i] for i in range(n)) / n)
+        self.fourier_y_cos.append(sum((-1) ** i * y_values[i] for i in range(n)) / n)
+        self.fourier_x_sin.append(0)
+        self.fourier_y_sin.append(0)
+
+        return self
+
+    @property
+    def all_fourier_coeffs(self):
+        return (
+            self.fourier_x_cos,
+            self.fourier_x_sin,
+            self.fourier_y_cos,
+            self.fourier_y_sin,
+        )
+
+    def compute_x(self, t: float) -> float:
+        """Compute x(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            cf * math.cos(TAU * d * t) for d, cf in enumerate(self.fourier_x_cos)
+        )
+        sin_term = sum(
+            cf * math.sin(TAU * d * t) for d, cf in enumerate(self.fourier_x_sin)
+        )
+        return cos_term + sin_term
+
+    def compute_y(self, t: float) -> float:
+        """Compute y(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            cf * math.cos(TAU * d * t) for d, cf in enumerate(self.fourier_y_cos)
+        )
+        sin_term = sum(
+            cf * math.sin(TAU * d * t) for d, cf in enumerate(self.fourier_y_sin)
+        )
+        return cos_term + sin_term
+
+    def compute_xyz(self, t: float) -> Vect3:
+        return np.array([self.compute_x(t), self.compute_y(t), 0.0])
+
+    def compute_dx(self, t: float) -> float:
+        """Compute x'(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            -cf * (TAU * d) * math.sin(TAU * d * t)
+            for d, cf in enumerate(self.fourier_x_cos)
+        )
+        sin_term = sum(
+            cf * (TAU * d) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_x_sin)
+        )
+        return cos_term + sin_term
+
+    def compute_dy(self, t: float) -> float:
+        """Compute y'(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            -cf * (TAU * d) * math.sin(TAU * d * t)
+            for d, cf in enumerate(self.fourier_y_cos)
+        )
+        sin_term = sum(
+            cf * (TAU * d) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_y_sin)
+        )
+        return cos_term + sin_term
+
+    def compute_d2x(self, t: float) -> float:
+        """Compute x''(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            -cf * ((TAU * d) ** 2) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_x_cos)
+        )
+        sin_term = sum(
+            -cf * ((TAU * d) ** 2) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_x_sin)
+        )
+        return cos_term + sin_term
+
+    def compute_d2y(self, t: float) -> float:
+        """Compute y''(t) value at parameter t in [0, 1]"""
+        cos_term = sum(
+            -cf * (d**2) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_y_cos)
+        )
+        sin_term = sum(
+            -cf * (d**2) * math.cos(TAU * d * t)
+            for d, cf in enumerate(self.fourier_y_sin)
+        )
+        return cos_term + sin_term
+
+    def make_arrow(self, i: int, h: float) -> Arrow:
+        """Constructs an arrow normal to the curve of the given length"""
+        return Arrow(
+            self.get_anchor(i),
+            self.get_anchor(i) - h * self.get_normal_vec(i / self.num_segments),
+            buff=0,
+        ).set_color(BLUE)
+
+    def _forward_curvature(self, i: int) -> float:
+        """Picks the three points of the Bezier curve segment going forward, and
+        uses these to compute curvature."""
+        a0 = self.data["point"][6 * i]
+        h = self.data["point"][6 * i + 1]
+        a1 = self.data["point"][6 * i + 2]
+        return 0.5 * np.linalg.norm(a0 - 2 * h + a1) / np.linalg.norm(h - a0) ** 2
+
+    def _backward_curvature(self, i: int) -> float:
+        """Picks the three points of the Bezier curve segment going backward, and
+        uses these to compute curvature."""
+        if i == 0:
+            a0 = self.data["point"][-1]
+            h = self.data["point"][-2]
+            a1 = self.data["point"][-3]
+        else:
+            a0 = self.data["point"][6 * i - 2]
+            h = self.data["point"][6 * i - 3]
+            a1 = self.data["point"][6 * i - 4]
+        return -0.5 * np.linalg.norm(a0 - 2 * h + a1) / np.linalg.norm(h - a0) ** 2
+
+    def get_curvature(self, t: float) -> float:
+        """Computes the curvature, using the Fourier interpolation."""
+        # Use the Fourier coefficients to compute the curvature, using the formula
+        # C = x'(s)y''(s) - x''(s)y'(s)
+        # where s parametrizes arc-length changing at rate 1. Equivalently, parametrizing by t,
+        # C = (x'(t)y''(t) - x''(t)y'(t)) / ((x')^2 + (y')^2)^{3/2}
+        # TODO Not sure if this is correct? It relies on the accuracy of the Fourier decomposition.
+        xprime = self.compute_dx(t)
+        yprime = self.compute_dy(t)
+        return (xprime * self.compute_d2y(t) - self.compute_d2x(t) * yprime) / math.pow(
+            xprime**2 + yprime**2, 1.5
+        )
+
+        # return 0.5 * (self._forward_curvature(i) + self._backward_curvature(i))
+
+    def get_curvatures(self) -> float:
+        """Computes the curvature at the i-th anchor, using the Fourier interpolation."""
+        if not self.fourier_x_cos:
+            self.do_fourier_interp()
+
+        return np.array(
+            [
+                self.get_curvature(i / self.num_segments)
+                for i in range(self.num_segments)
+            ]
+        )
+
+    def deform_along(self, h_values: list[float]) -> ClosedCurve:
+        """Deforms the curve along the given list of h-values.
+        Then does a step of spacing out the anchors to ensure they
+        don't drift too close together."""
+        new_anchors = [
+            # self.get_anchor(i)
+            self.compute_xyz(i / self.num_segments)
+            - h_values[i] * self.get_normal_vec(i / self.num_segments)
+            for i in range(self.num_segments)
+        ]
+        new_curve = make_closed_curve_from_points(*new_anchors)
+        return new_curve
+
+    def space_out(self) -> ClosedCurve:
+        """Produces a new closed curve whose anchors lie on this one, but which
+        are equally spaced (by arc length) along the curve."""
+        # Do a quick-and-dirty estimate of the arc lengths
+        arc_lengths = []
+        anchors_and_handles = []
+        for i in range(self.num_segments):
+            anchors_and_handles.extend(
+                [
+                    (
+                        self.data["point"][6 * i],
+                        self.data["point"][6 * i + 1],
+                        self.data["point"][6 * i + 2],
+                    ),
+                    (
+                        self.data["point"][6 * i + 2],
+                        self.data["point"][6 * i + 3],
+                        self.data["point"][6 * i + 4],
+                    ),
+                ]
+            )
+            arc_lengths.extend(
+                [
+                    qbez_arc_length(
+                        self.data["point"][6 * i],
+                        self.data["point"][6 * i + 1],
+                        self.data["point"][6 * i + 2],
+                    ),
+                    qbez_arc_length(
+                        self.data["point"][6 * i + 2],
+                        self.data["point"][6 * i + 3],
+                        self.data["point"][6 * i + 4],
+                    ),
+                ]
+            )
+
+        # Get the total arc length and spacing between new anchors
+        total_length = sum(arc_lengths)
+        normalized_arc_lengths = [l / total_length for l in arc_lengths]
+
+        # Construct the new anchors
+        new_anchors = []
+        length, ind = 0.0, 0
+        for i in range(self.num_segments):
+            desired_length = i / self.num_segments
+            while length + normalized_arc_lengths[ind] <= desired_length:
+                length += normalized_arc_lengths[ind]
+                ind += 1
+            new_anchors.append(
+                qbez_arc_length_interp(
+                    *anchors_and_handles[ind],
+                    alpha=(desired_length - length) / normalized_arc_lengths[ind],
+                )
+            )
+
+        new_curve = make_closed_curve_from_points(*new_anchors)
+        return new_curve
+
+
+def qbez_arc_length_interp(
+    a0: Vect3, h: Vect3, a1: Vect3, alpha: float, num_segments: int = 10
+):
+    """Outputs the point a fraction alpha of the way along the quadratic bezier curve"""
+    curve_p = lambda t: (1 - t) ** 2 * a0 + 2 * t * (1 - t) * h + t**2 * a1
+    total_length = qbez_arc_length(a0, h, a1, num_segments)
+    desired_length = alpha * total_length
+    length, ind = 0.0, 0
+    next_segment_length = np.linalg.norm(
+        curve_p((ind + 1) / num_segments) - curve_p(ind / num_segments)
+    )
+    while length + next_segment_length <= desired_length:
+        length += next_segment_length
+        ind += 1
+        next_segment_length = np.linalg.norm(
+            curve_p((ind + 1) / num_segments) - curve_p(ind / num_segments)
+        )
+    ratio = (desired_length - length) / next_segment_length
+    return curve_p((ind + ratio) / num_segments)
+
+
+def qbez_arc_length(a0: Vect3, h: Vect3, a1: Vect3, num_segments: int = 10):
+    """Estimates the arc length of a quadratic Bezier segment by approximating linearly."""
+    curve_p = lambda t: (1 - t) ** 2 * a0 + 2 * t * (1 - t) * h + t**2 * a1
+    return sum(
+        np.linalg.norm(curve_p((i + 1) / num_segments) - curve_p(i / num_segments))
+        for i in range(num_segments)
+    )
+    pass
+
+
+def make_closed_curve_from_points(*anchors) -> VMobject:
+    """Makes a smooth Bezier curve from a sequence of points, where the first
+    point is repeated as the last point"""
+    return make_curve_from_points(*anchors, anchors[0])
+
+
+def make_curve_from_points(*anchors) -> ClosedCurve:
+    """Makes a smooth Bezier curve from a sequence of points."""
+    h1, h2 = get_smooth_cubic_bezier_handle_points(anchors)
+    c = ClosedCurve()
+    for i in range(len(anchors) - 1):
+        c.add_cubic_bezier_curve(anchors[i], h1[i], h2[i], anchors[i + 1])
+    return c
+
+
+# Showing deformation of a curve a la the isoperimetric inequality, i.e. calculus of variations
+class Isoperimetric(Scene):
+    # First, define closed curves in the plane, parametrized as f: [0, 2pi] -> R^2
+    # according to a Fourier decomposition
+    def construct(self):
+        def make_curve_from_fourier(
+            x_cos_coeffs: list[float],
+            x_sin_coeffs: list[float],
+            y_cos_coeffs: list[float],
+            y_sin_coeffs: list[float],
+        ) -> ParametricCurve:
+            """Defines a closed parametric curve from Fourier coefficients"""
+            c = ParametricCurve(
+                lambda t: (
+                    sum(cf * np.cos((k + 1) * t) for k, cf in enumerate(x_cos_coeffs))
+                    + sum(
+                        cf * np.sin((k + 1) * t) for k, cf in enumerate(x_sin_coeffs)
+                    ),
+                    sum(cf * np.cos((k + 1) * t) for k, cf in enumerate(y_cos_coeffs))
+                    + sum(
+                        cf * np.sin((k + 1) * t) for k, cf in enumerate(y_sin_coeffs)
+                    ),
+                    0,
+                ),
+                (0, TAU, TAU / 20),
+            )
+            return c
+
+        def interpolate_coeff_from_points(
+            points: list[tuple[float, float]], degree: int = 10
+        ):
+            # Use Fourier to estimate
+            pass
+
+        # Define a curve
+        # curve = make_curve_from_fourier([1.0], [], [], [1.0])
+
+        # Define a circular curve
+        num_pts = 10
+        angles = np.linspace(0, TAU * (1 - 1 / num_pts), num_pts)
+        radial_vecs = list(map(lambda t: np.array([np.cos(t), np.sin(t), 0]), angles))
+
+        curve = make_closed_curve_from_points(*radial_vecs)
+        self.add(curve)
+
+        # Transform it into a slightly different curve
+        # TODO Make this result smoother
+        radii = [1 + 0.1 * np.random.randn() for _ in range(num_pts)]
+        new_curve = make_closed_curve_from_points(
+            *[radii[i] * radial_vecs[i] for i in range(num_pts)]
+        )
+        self.play(Transform(curve, new_curve))
+
+        # TODO: Do lots of mini-animations, recomputing the arrows
+
+        # Define perturbation function at each point in the way which
+        # keeps the length fixed and maximally increases the area
+        # - Length change = <h_values, curvatures>
+        # - Area change   = <h_values, 1>
+        # - Normalized: <h_values, h_values> = 1
+        # We project 1-vector onto the orthogonal complement of curvatures, then normalize its length.
+        one_vector = np.ones(num_pts)
+
+        # self.embed()
+        arrow_length = 0.1
+        anchors = VGroup(*[Dot(a, radius=0.05).set_color(RED) for a in curve.anchors])
+        intermediate_anchors = VGroup(
+            *[Dot(a, radius=0.05).set_color(BLUE) for a in curve.intermediate_anchors]
+        )
+        # self.add(anchors)
+        # TODO For now, we keep area fixed and decrease length
+        # ISSUE: If two anchors drift too close together, we get numerical instability and very high curvature.
+        # One solution: don't set the perturbation *proportional* to curvature.
+        for j in range(10):
+            print(f"Iteration {j}")
+            curve.do_fourier_interp()
+            curvatures = curve.get_curvatures()
+
+            projected = (
+                one_vector
+                - curvatures
+                * (one_vector.dot(curvatures))
+                / np.linalg.norm(curvatures) ** 2
+            )
+            h_values = arrow_length * normalize_vect3(projected)
+
+            arrows = VGroup(
+                *list(
+                    map(
+                        lambda tup: curve.make_arrow(*tup),
+                        zip(range(num_pts), h_values),
+                    )
+                )
+            )
+            self.play(ShowCreation(arrows), run_time=0.5)
+
+            new_curve = make_closed_curve_from_points(
+                *[
+                    curve.compute_xyz(i / num_pts)
+                    - h_values[i] * curve.get_normal_vec(i / num_pts)
+                    for i in range(num_pts)
+                ]
+            )
+            self.play(
+                Transform(curve, new_curve),
+                # Transform(anchors, new_anchors),
+                # Transform(intermediate_anchors, new_intermediate_anchors),
+                FadeOut(arrows),
+                rate_func=linear,
+                run_time=1.0,
+            )
+
+        self.embed()
+
 
 # # ── Poincaré disk helpers ──────────────────────────────────────────────────
 
