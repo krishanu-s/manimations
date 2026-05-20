@@ -75,6 +75,7 @@ class ClosedCurve(VMobject):
         self.fourier_y_cos = [np.sum(y_values) / n]
         self.fourier_x_sin = [0]
         self.fourier_y_sin = [0]
+
         for d in range(1, self.max_deg):
             cos_vector = np.array([math.cos(TAU * d * i / n) for i in range(n)])
             sin_vector = np.array([math.sin(TAU * d * i / n) for i in range(n)])
@@ -82,6 +83,7 @@ class ClosedCurve(VMobject):
             self.fourier_y_cos.append(y_values.dot(cos_vector) * 2 / n)
             self.fourier_x_sin.append(x_values.dot(sin_vector) * 2 / n)
             self.fourier_y_sin.append(y_values.dot(sin_vector) * 2 / n)
+
         self.fourier_x_cos.append(sum((-1) ** i * x_values[i] for i in range(n)) / n)
         self.fourier_y_cos.append(sum((-1) ** i * y_values[i] for i in range(n)) / n)
         self.fourier_x_sin.append(0)
@@ -152,7 +154,7 @@ class ClosedCurve(VMobject):
             for d, cf in enumerate(self.fourier_x_cos)
         )
         sin_term = sum(
-            -cf * ((TAU * d) ** 2) * math.cos(TAU * d * t)
+            -cf * ((TAU * d) ** 2) * math.sin(TAU * d * t)
             for d, cf in enumerate(self.fourier_x_sin)
         )
         return cos_term + sin_term
@@ -160,11 +162,11 @@ class ClosedCurve(VMobject):
     def compute_d2y(self, t: float) -> float:
         """Compute y''(t) value at parameter t in [0, 1]"""
         cos_term = sum(
-            -cf * (d**2) * math.cos(TAU * d * t)
+            -cf * ((TAU * d) ** 2) * math.cos(TAU * d * t)
             for d, cf in enumerate(self.fourier_y_cos)
         )
         sin_term = sum(
-            -cf * (d**2) * math.cos(TAU * d * t)
+            -cf * ((TAU * d) ** 2) * math.sin(TAU * d * t)
             for d, cf in enumerate(self.fourier_y_sin)
         )
         return cos_term + sin_term
@@ -403,19 +405,17 @@ class Isoperimetric(Scene):
         # - Length change = <h_values, curvatures>
         # - Area change   = <h_values, 1>
         # - Normalized: <h_values, h_values> = 1
-        # We project 1-vector onto the orthogonal complement of curvatures, then normalize its length.
+        # We project 1-vector onto the orthogonal complement of curvatures, then use that.
         one_vector = np.ones(num_pts)
 
         # self.embed()
-        arrow_length = 0.1
+        arrow_length = 0.5
         anchors = VGroup(*[Dot(a, radius=0.05).set_color(RED) for a in curve.anchors])
         intermediate_anchors = VGroup(
             *[Dot(a, radius=0.05).set_color(BLUE) for a in curve.intermediate_anchors]
         )
         # self.add(anchors)
-        # TODO For now, we keep area fixed and decrease length
-        # ISSUE: If two anchors drift too close together, we get numerical instability and very high curvature.
-        # One solution: don't set the perturbation *proportional* to curvature.
+
         for j in range(10):
             print(f"Iteration {j}")
             curve.do_fourier_interp()
@@ -427,17 +427,18 @@ class Isoperimetric(Scene):
                 * (one_vector.dot(curvatures))
                 / np.linalg.norm(curvatures) ** 2
             )
-            h_values = arrow_length * normalize_vect3(projected)
+            # h_values = arrow_length * normalize_vect3(projected)
+            h_values = 0.2 * arrow_length * projected
 
             arrows = VGroup(
                 *list(
                     map(
                         lambda tup: curve.make_arrow(*tup),
-                        zip(range(num_pts), h_values),
+                        zip(range(num_pts), 5 * h_values),
                     )
                 )
             )
-            self.play(ShowCreation(arrows), run_time=0.5)
+            self.play(ShowCreation(arrows), run_time=0.1)
 
             new_curve = make_closed_curve_from_points(
                 *[
@@ -452,7 +453,7 @@ class Isoperimetric(Scene):
                 # Transform(intermediate_anchors, new_intermediate_anchors),
                 FadeOut(arrows),
                 rate_func=linear,
-                run_time=1.0,
+                run_time=0.5,
             )
 
         self.embed()
