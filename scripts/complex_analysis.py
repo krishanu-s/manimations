@@ -1,11 +1,173 @@
 """Animating the core concepts in complex analysis"""
 
+from __future__ import annotations
+
+import cmath
 import math
+from typing import Annotated, Dict, Iterable, Literal, Tuple, Union
 
 import manimlib as m
 import numpy as np
 from manimlib import *
 from scipy.special import gamma
+
+FloatArray = np.ndarray[int, np.dtype[np.float64]]
+Vect2 = Annotated[FloatArray, Literal[2]]
+Vect3 = Annotated[FloatArray, Literal[3]]
+Vect4 = Annotated[FloatArray, Literal[4]]
+
+
+def get_angle(v: FloatArray) -> float:
+    return (math.atan2(v[1], v[0]) - PI / 2) % TAU
+
+
+def polar_vec(theta: float) -> Vect3:
+    return np.array([np.cos(theta), np.sin(theta), 0.0])
+
+
+def rot90(v: Vect3) -> Vect3:
+    """Rotates the vector counterclockwise by 90 degrees"""
+    return np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]) @ v
+
+
+def normalize_vect3(v: FloatArray) -> FloatArray:
+    """Normalizes a vector"""
+    return v / np.linalg.norm(v)
+
+
+def clamp(t: float, tmin: float, tmax: float) -> float:
+    return max(min(t, tmax), tmin)
+
+
+class Curve(VMobject):
+    """A curve composed of a sequence of bezier curves."""
+
+    num_segments: int
+
+    @classmethod
+    def make_from_anchors(cls, *anchors) -> Curve:
+        """Makes a curve passing through the given anchors."""
+        n = len(anchors) - 1
+        curve = Curve()
+        curve.num_segments = n
+
+        h1, h2 = get_smooth_cubic_bezier_handle_points(anchors)
+        for i in range(n):
+            curve.add_cubic_bezier_curve(anchors[i], h1[i], h2[i], anchors[i + 1])
+        return curve
+
+    @property
+    def anchors(self) -> list[Vect3]:
+        """Retrieves the anchors."""
+        return list(self.data["point"][::6]) + [self.data["point"][-1]]
+
+    def transform(self, fn: Callable[[Vect3], Vect3]) -> Curve:
+        """Transforms the anchors according to the given function, and uses the images to draw a new curve."""
+        return Curve.make_from_anchors(*map(fn, self.anchors))
+
+
+class CurveGrid(VGroup):
+    """A grid of curves passing through an array of points, intersecting to form an m-by-n grid.
+    The m vertical (x) curves each are defined by N anchors, where N - 1 is a multiple of n - 1.
+    The n horizontal (y)  curves are each defined by M anchors, where M - 1 is a multiple of m - 1."""
+
+    anchors_x: FloatArray  # Array of shape (m, N, 3).
+    anchors_y: FloatArray  # Array of shape (n, M, 3).
+    num_curves_x: int  # m
+    num_curves_y: int  # n
+    num_anchors_x: int  # M
+    num_anchors_y: int  # N
+
+    @classmethod
+    def make_from_anchors(cls, anchors_x: FloatArray, anchors_y: FloatArray):
+        """Initializes the grid from the set of anchors for each crossing set."""
+        grid = CurveGrid()
+        grid.anchors_x = anchors_x
+        grid.anchors_y = anchors_y
+        grid.num_curves_x = anchors_x.shape[0]
+        grid.num_anchors_y = anchors_x.shape[1]
+
+        grid.num_curves_y = anchors_y.shape[0]
+        grid.num_anchors_x = anchors_y.shape[1]
+
+        for i in range(grid.num_curves_x):
+            grid.add(Curve.make_from_anchors(*list(anchors_x[i, :, :])))
+
+        for i in range(grid.num_curves_y):
+            grid.add(Curve.make_from_anchors(*list(anchors_y[i, :, :])))
+
+        return grid
+
+    @classmethod
+    def make_linear(
+        cls,
+        xlims: tuple[float, float],
+        ylims: tuple[float, float],
+        num_curves_x: int,
+        num_anchors_x: int,
+        num_curves_y: int,
+        num_anchors_y: int,
+    ):
+        xmin, xmax = xlims
+        ymin, ymax = ylims
+        anchors_x = np.array(
+            [
+                [[x, y, 0.0] for y in np.linspace(ymin, ymax, num_anchors_y)]
+                for x in np.linspace(xmin, xmax, num_curves_x)
+            ]
+        )
+        anchors_y = np.array(
+            [
+                [[x, y, 0.0] for x in np.linspace(xmin, xmax, num_anchors_x)]
+                for y in np.linspace(ymin, ymax, num_curves_y)
+            ]
+        )
+        return CurveGrid.make_from_anchors(anchors_x, anchors_y)
+
+    def get_curve_x(self, i: int):
+        return self[i]
+
+    def get_curve_y(self, i: int):
+        return self[self.num_curves_x + i]
+
+    def get_anchors_x(self):
+        return self.anchors_x
+
+    def get_anchors_y(self):
+        return self.anchors_y
+
+    def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
+        """Transforms the anchors according to the given function, and uses the images to draw a new curve.
+        Assumes the function isn't vectorized."""
+        anchors_x = self.get_anchors_x()
+        anchors_y = self.get_anchors_y()
+        mapped_anchors_x = np.stack(
+            [
+                np.stack(
+                    [fn(anchors_x[i, j]) for j in range(self.num_anchors_y)], axis=0
+                )
+                for i in range(self.num_curves_x)
+            ],
+            axis=0,
+        )
+
+        mapped_anchors_y = np.stack(
+            [
+                np.stack(
+                    [fn(anchors_y[i, j]) for j in range(self.num_anchors_x)], axis=0
+                )
+                for i in range(self.num_curves_y)
+            ],
+            axis=0,
+        )
+        return CurveGrid.make_from_anchors(mapped_anchors_x, mapped_anchors_y)
+
+    def transform_vectorized(self, fn: Callable[[FloatArray], FloatArray]) -> CurveGrid:
+        """Transforms the anchors according to the given function, and uses the images to draw a new curve.
+        Assumes the function is vectorized."""
+        return CurveGrid.make_from_anchors(
+            fn(self.get_anchors_x()), fn(self.get_anchors_y())
+        )
 
 
 def wp(z: complex | np.ndarray, tau: complex, n_pts: int = 10) -> np.ndarray:
@@ -49,15 +211,129 @@ def gamma_func(arr: np.ndarray):
     return np.apply_along_axis(gamma, axis=-1, arr=arr)
 
 
+def pdisk_aut(a: complex, z: complex):
+    """Consider the automorphism of the Poincare disk interchanging 0 and a.
+    Applies this function to z."""
+    return (a - z) / (1 - z * a.conjugate())
+
+
+def vect3_to_cx(v: Vect3):
+    return complex(v[0], v[1])
+
+
+def cx_to_vect3(z: complex):
+    return np.array([z.real, z.imag, 0.0])
+
+
 # Riemann zeta function, vectorized TODO
+class RiemannMapping(Scene):
+    """Some animations related to the Riemann mapping theorem."""
+
+    def do_fn(
+        self, grid: CurveGrid, fn: Callable[[complex], complex], run_time: float = 1.0
+    ) -> CurveGrid:
+        """Deforms the grid to its image under an arbitrary function."""
+        tgrid = grid.transform(lambda v: cx_to_vect3(fn(vect3_to_cx(v))))
+        self.play(grid.animate.become(tgrid), run_time=run_time)
+        self.remove(grid)
+        grid = tgrid
+        self.add(grid)
+        return grid
+
+    def do_pdisk_aut(
+        self, grid: CurveGrid, a: complex, run_time: float = 1.0
+    ) -> CurveGrid:
+        """Deforms the grid to its image under the automorphism represented by the complex number a."""
+        return self.do_fn(grid, lambda z: pdisk_aut(a, z), run_time=run_time)
+
+    def do_sqrt(self, grid: CurveGrid, run_time: float = 1.0) -> CurveGrid:
+        """Deforms the grid to its image under the square root function.
+
+        WARNING: Assumes that the grid doesn't cross the negative real line. This isn't checked."""
+        return self.do_fn(grid, cmath.sqrt, run_time=run_time)
+
+    def do_riemann_mapping_expansion(
+        self, grid: CurveGrid, a: complex, do_steps: bool = True, run_time: float = 3.0
+    ) -> CurveGrid:
+        """Given a domain in the Poincare disk which contains 0, and a point a
+        which lies outside of it, performs a series of animations to deform the
+        grid to be larger while still lying within the Poincare disk."""
+        if do_steps:
+            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 3)
+            grid = self.do_sqrt(grid, run_time=run_time / 3)
+            grid = self.do_pdisk_aut(grid, cmath.sqrt(a), run_time=run_time / 3)
+        else:
+            grid = self.do_fn(
+                grid,
+                lambda z: pdisk_aut(cmath.sqrt(a), cmath.sqrt(pdisk_aut(a, z))),
+                run_time=run_time,
+            )
+        return grid
+
+    def construct(self):
+        circle = ParametricCurve(polar_vec, (0, TAU, TAU / 100))
+        self.add(circle)
+
+        # Make a square grid
+        grid = CurveGrid.make_linear((-0.2, 0.2), (-0.2, 0.2), 9, 49, 9, 49)
+        self.add(grid)
+
+        # Expand it
+        tgrid = grid.transform(lambda v: v * 2.5 * np.sqrt(2))
+        self.play(grid.animate.become(tgrid))
+        self.remove(grid)
+        grid = tgrid
+        self.add(grid)
+
+        ## Automorphism associated to a point not inside the domain.
+        grid = self.do_riemann_mapping_expansion(grid, complex(0.8, 0))
+
+        # Do iterative expansions
+        a = complex(0.9, 0)
+        for i in range(10):
+            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+            print(f"Iteration {i}")
+
+        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
+
+        for i in range(10):
+            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+            print(f"Iteration {i}")
+
+        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
+
+        for i in range(10):
+            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+            print(f"Iteration {i}")
+
+        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
+
+        for i in range(10):
+            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+            print(f"Iteration {i}")
+
+        # TODO Find a method to locate points in the Poincare disk which lie outside of the grid.
+        # One possibility is to follow any curve a bit beyond the last point, without going outside of the disk.
+
+        self.embed()
 
 
 class LocalGridScene(Scene):
     """Depicts two coordinate planes related by a complex-analytic function, and the effect
     of this function on a local coordinate patch around a single point.
+
+    The hope is to use this to show Goursat's theorem:
+    - first showing that all contour integrals around a point are zero for a linear function
+    - then showing that for a function whose derivative is zero at a point, the integral of a small contour
+    of radius r around that point goes as smaller than p(r)/r^2 where p(r) -> 0 as r -> 0
+    - thus deduce that if the function is holomorphic at a point, then the integral of a small contour
+    of radius r around that point goes as smaller than p(r)/r^2 where p(r) -> 0 as r -> 0
+    - then using that there's some point inside the contour such that small contours around that point
+    majorize the big one
     """
 
     def construct(self):
+        self.embed()
         # Make input axis
         axes_in = Axes((-5, 5), (-5, 5))
         self.play(ShowCreation(axes_in))
@@ -128,7 +404,7 @@ class LocalGridScene(Scene):
         # Make image of the local grid
         # TODO Make these updaters more efficient.
         # TODO Make modification of the function possible.
-        def make_hline_img(y: float):
+        def make_hline_img(y: float, fn: Callable[[float, float], tuple[float, float]]):
             l = ParametricCurve(lambda t: ORIGIN, (-1, 1, 0.05)).set_style(
                 stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
             )
@@ -137,7 +413,7 @@ class LocalGridScene(Scene):
                 lambda mobj: mobj.become(
                     ParametricCurve(
                         lambda t: axes_out.c2p(
-                            *cx_fn(
+                            *fn(
                                 pt_x.get_value() + t * rad.get_value(),
                                 pt_y.get_value() + y * rad.get_value(),
                             )
@@ -148,7 +424,7 @@ class LocalGridScene(Scene):
             )
             return l
 
-        def make_vline_img(x: float):
+        def make_vline_img(x: float, fn: Callable[[float, float], tuple[float, float]]):
             l = ParametricCurve(lambda t: ORIGIN, (-1, 1, 0.05)).set_style(
                 stroke_width=1.0, stroke_opacity=0.6, stroke_color=BLUE
             )
@@ -156,7 +432,7 @@ class LocalGridScene(Scene):
                 lambda mobj: mobj.become(
                     ParametricCurve(
                         lambda t: axes_out.c2p(
-                            *cx_fn(
+                            *fn(
                                 pt_x.get_value() + x * rad.get_value(),
                                 pt_y.get_value() + t * rad.get_value(),
                             )
@@ -167,9 +443,15 @@ class LocalGridScene(Scene):
             )
             return l
 
-        def make_local_grid_img(num_x, num_y):
-            hlines_img = map(make_hline_img, np.linspace(-1, 1, num_y + 1))
-            vlines_img = map(make_vline_img, np.linspace(-1, 1, num_x + 1))
+        def make_local_grid_img(
+            num_x, num_y, fn: Callable[[float, float], tuple[float, float]] = cx_fn
+        ):
+            hlines_img = map(
+                lambda y: make_hline_img(y, fn), np.linspace(-1, 1, num_y + 1)
+            )
+            vlines_img = map(
+                lambda x: make_vline_img(x, fn), np.linspace(-1, 1, num_x + 1)
+            )
             return VGroup(*hlines_img, *vlines_img)
 
         local_grid_img = make_local_grid_img(nx, ny)
