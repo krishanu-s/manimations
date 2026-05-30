@@ -30,6 +30,20 @@ def rot90(v: Vect3) -> Vect3:
     return np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]) @ v
 
 
+def rot(v: Vect3, theta: float) -> Vect3:
+    """Rotates the vector counterclockwise by theta"""
+    return (
+        np.array(
+            [
+                [np.cos(theta), -np.sin(theta), 0],
+                [np.sin(theta), np.cos(theta), 0],
+                [0, 0, 1],
+            ]
+        )
+        @ v
+    )
+
+
 def normalize_vect3(v: FloatArray) -> FloatArray:
     """Normalizes a vector"""
     return v / np.linalg.norm(v)
@@ -45,10 +59,11 @@ class Curve(VMobject):
     num_segments: int
 
     @classmethod
-    def make_from_anchors(cls, *anchors) -> Curve:
+    def make_from_anchors(cls, *anchors, **style_kwargs) -> Curve:
         """Makes a curve passing through the given anchors."""
         n = len(anchors) - 1
         curve = Curve()
+        curve.set_style(**style_kwargs)
         curve.num_segments = n
 
         h1, h2 = get_smooth_cubic_bezier_handle_points(anchors)
@@ -90,11 +105,30 @@ class CurveGrid(VGroup):
         grid.num_curves_y = anchors_y.shape[0]
         grid.num_anchors_x = anchors_y.shape[1]
 
+        # Make the first and last in each coordinate brighter than the rest
         for i in range(grid.num_curves_x):
-            grid.add(Curve.make_from_anchors(*list(anchors_x[i, :, :])))
+            stroke_opacity = 1.0 if (i == 0) or (i == grid.num_curves_x - 1) else 0.5
+            stroke_width = 3.0 if (i == 0) or (i == grid.num_curves_x - 1) else 1.0
+            grid.add(
+                Curve.make_from_anchors(
+                    *list(anchors_x[i, :, :]),
+                    stroke_opacity=stroke_opacity,
+                    stroke_width=stroke_width,
+                    stroke_color=BLUE,
+                )
+            )
 
         for i in range(grid.num_curves_y):
-            grid.add(Curve.make_from_anchors(*list(anchors_y[i, :, :])))
+            stroke_opacity = 1.0 if (i == 0) or (i == grid.num_curves_y - 1) else 0.5
+            stroke_width = 3.0 if (i == 0) or (i == grid.num_curves_y - 1) else 1.0
+            grid.add(
+                Curve.make_from_anchors(
+                    *list(anchors_y[i, :, :]),
+                    stroke_opacity=stroke_opacity,
+                    stroke_width=stroke_width,
+                    stroke_color=BLUE,
+                )
+            )
 
         return grid
 
@@ -124,6 +158,12 @@ class CurveGrid(VGroup):
         )
         return CurveGrid.make_from_anchors(anchors_x, anchors_y)
 
+    def become(self, grid: CurveGrid, match_updaters=False):
+        """Becomes another grid, including updating all anchors"""
+        super().become(grid, match_updaters=match_updaters)
+        self.anchors_x = grid.anchors_x
+        self.anchors_y = grid.anchors_y
+
     def get_curve_x(self, i: int):
         return self[i]
 
@@ -135,6 +175,51 @@ class CurveGrid(VGroup):
 
     def get_anchors_y(self):
         return self.anchors_y
+
+    def get_boundary_points(self) -> FloatArray:
+        """Gets anchors along the bounding curves. Assumes the region is non-self-intersecting"""
+        return np.concatenate(
+            [
+                self.anchors_x[0],
+                self.anchors_x[-1],
+                self.anchors_y[0],
+                self.anchors_y[-1],
+            ],
+            axis=0,
+        )
+
+    def get_phase_bounds(self) -> tuple[float, float]:
+        """Gets theta_min < theta_max so that all points in the grid have phase lying within
+        these two angles. Assumes the grid is simply-connected and doesn't encircle 0."""
+        bdy_pts = self.get_boundary_points()
+        num_pts = len(bdy_pts)
+
+        # Get the phases, sorted
+        as_complex = [vect3_to_cx(p) for p in bdy_pts]
+        phases = list(map(cmath.phase, [vect3_to_cx(p) for p in bdy_pts]))
+        phases = sorted(phases)
+
+        # Find the largest difference -- this is the jump from theta_max to theta_min
+        diffs = [(phases[(i + 1) % num_pts] - phases[i]) % TAU for i in range(num_pts)]
+        ind = np.argmax(diffs)
+        theta_max = phases[ind]
+        theta_min = phases[(ind + 1) % num_pts]
+
+        # Shift so that -pi < theta_min < pi and theta_min < theta_max
+        if theta_max - theta_min < 0:
+            theta_max += TAU
+        if theta_min >= PI:
+            theta_min -= TAU
+            theta_max -= TAU
+
+        return theta_min, theta_max
+
+    def get_sqrt_fn(self) -> Callable[[complex], complex]:
+        theta_min, theta_max = self.get_phase_bounds()
+        phi = (theta_min + theta_max) / 2
+        return lambda z: cmath.sqrt(z * cmath.exp(complex(0, -phi))) * cmath.exp(
+            complex(0, phi / 2)
+        )
 
     def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
         """Transforms the anchors according to the given function, and uses the images to draw a new curve.
@@ -225,97 +310,235 @@ def cx_to_vect3(z: complex):
     return np.array([z.real, z.imag, 0.0])
 
 
-# Riemann zeta function, vectorized TODO
 class RiemannMapping(Scene):
     """Some animations related to the Riemann mapping theorem."""
 
     def do_fn(
-        self, grid: CurveGrid, fn: Callable[[complex], complex], run_time: float = 1.0
+        self,
+        grid: CurveGrid,
+        fn: Callable[[complex], complex],
+        other_animations: [Animation] = [],
+        **anim_kwargs,
     ) -> CurveGrid:
         """Deforms the grid to its image under an arbitrary function."""
+        # TODO Find some way to modify the grid in-place rather than adding/removing.
         tgrid = grid.transform(lambda v: cx_to_vect3(fn(vect3_to_cx(v))))
-        self.play(grid.animate.become(tgrid), run_time=run_time)
+        self.play(grid.animate.become(tgrid), *other_animations, **anim_kwargs)
         self.remove(grid)
         grid = tgrid
         self.add(grid)
         return grid
 
-    def do_pdisk_aut(
-        self, grid: CurveGrid, a: complex, run_time: float = 1.0
-    ) -> CurveGrid:
+    def do_pdisk_aut(self, grid: CurveGrid, a: complex, **anim_kwargs) -> CurveGrid:
         """Deforms the grid to its image under the automorphism represented by the complex number a."""
-        return self.do_fn(grid, lambda z: pdisk_aut(a, z), run_time=run_time)
+        return self.do_fn(grid, lambda z: pdisk_aut(a, z), **anim_kwargs)
 
-    def do_sqrt(self, grid: CurveGrid, run_time: float = 1.0) -> CurveGrid:
+    def do_sqrt(self, grid: CurveGrid, **anim_kwargs) -> CurveGrid:
         """Deforms the grid to its image under the square root function.
 
         WARNING: Assumes that the grid doesn't cross the negative real line. This isn't checked."""
-        return self.do_fn(grid, cmath.sqrt, run_time=run_time)
+        return self.do_fn(grid, cmath.sqrt, **anim_kwargs)
 
     def do_riemann_mapping_expansion(
-        self, grid: CurveGrid, a: complex, do_steps: bool = True, run_time: float = 3.0
+        self,
+        grid: CurveGrid,
+        a: complex,
+        do_steps: bool = True,
+        show_dots: bool = True,
+        run_time: float = 3.0,
+        **anim_kwargs,
     ) -> CurveGrid:
-        """Given a domain in the Poincare disk which contains 0, and a point a
+        """
+        Given a domain in the Poincare disk which contains 0, and a point a
         which lies outside of it, performs a series of animations to deform the
-        grid to be larger while still lying within the Poincare disk."""
-        if do_steps:
-            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 3)
-            grid = self.do_sqrt(grid, run_time=run_time / 3)
-            grid = self.do_pdisk_aut(grid, cmath.sqrt(a), run_time=run_time / 3)
+        grid to be larger while still lying within the Poincare disk, as follows:
+            (i) Applies the unitary transformation associated to a which interchanges
+            0 and a and has (negative) real derivative at 0.
+            (ii) Applies a square-root map on the image.
+            (iii) Applies the unitary transformation associated to sqrt(a) which interchanges
+            0 and sqrt(a) and has (negative) real derivative at 0.
+            (iv) Applies a rotation by phase(a)/2 to get back to the original orientation.
+        """
+        # Do the initial transformation to calculate the angles for the square root
+        tgrid = grid.transform(lambda v: cx_to_vect3(pdisk_aut(a, vect3_to_cx(v))))
+        sqrt_fn = tgrid.get_sqrt_fn()
+        pa = cmath.phase(a)
+        sa = sqrt_fn(a)
+
+        # Correctional rotation at the end
+        cx_rot = cmath.exp(complex(0, pa) / 2)
+
+        # If a has negative phase, but the middle of the phase bounds is positive
+        # (and they're near each other, e.g. on opposide sides of +pi / -pi)
+        # then an additional correctional rotation by pi will be needed
+        theta_min, theta_max = tgrid.get_phase_bounds()
+        phi = (theta_min + theta_max) / 2
+        if abs(phi - pa) > PI:
+            cx_rot *= -1
+
+        if show_dots:
+            a_dot = VGroup()
+            a_dot.add(Dot((a.real, a.imag, 0), radius=0.02).set_color(RED))
+            a_dot.add(
+                Tex("\\alpha", font_size=12).set_color(RED).next_to(a_dot[0], UR, 0.03)
+            )
+            a_dot.set_height(0.2)
+            sa_dot = VGroup()
+            sa_dot.add(Dot((sa.real, sa.imag, 0), radius=0.02).set_color(GREEN))
+            sa_dot.add(
+                Tex("\\sqrt{\\alpha}", font_size=12)
+                .set_color(GREEN)
+                .next_to(sa_dot[0], UR, 0.03)
+            )
+            sa_dot.set_height(0.2)
+
+        if show_dots & do_steps:
+            self.play(FadeIn(a_dot), run_time=run_time / 10)
+            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
+            self.play(FadeIn(sa_dot), run_time=run_time / 10)
+            grid = self.do_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_fn(
+                grid,
+                lambda z: z * cx_rot,
+                run_time=run_time / 4,
+                other_animations=[FadeOut(a_dot), FadeOut(sa_dot)],
+                **anim_kwargs,
+            )
+        elif (show_dots != True) & do_steps:
+            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_fn(
+                grid, lambda z: z * cx_rot, run_time=run_time / 4, **anim_kwargs
+            )
+        elif show_dots & (do_steps != True):
+            self.play(FadeIn(a_dot), FadeIn(sa_dot), run_time=run_time / 3)
+            grid = self.do_fn(
+                grid,
+                lambda z: pdisk_aut(sa, sqrt_fn(pdisk_aut(a, z))) * cx_rot,
+                run_time=run_time,
+                **anim_kwargs,
+            )
+            self.play(FadeOut(a_dot), FadeOut(sa_dot), run_time=run_time / 3)
         else:
             grid = self.do_fn(
                 grid,
-                lambda z: pdisk_aut(cmath.sqrt(a), cmath.sqrt(pdisk_aut(a, z))),
+                lambda z: pdisk_aut(sa, sqrt_fn(pdisk_aut(a, z))) * cx_rot,
                 run_time=run_time,
+                **anim_kwargs,
             )
         return grid
 
     def construct(self):
+        """Animates the iterative algorithm given in Stein-Shakarchi 8.3.3 for
+        holomorphically mapping an arbitrary simply-connected domain in C onto
+        the unit disk, by maximizing the derivative of the function at the
+        preimage of 0."""
+        # TODO Generalize this an arbitrary region, by
+        # (1) generalizing CurveGrid to include boundary curves and internal curves
+        # (2) writing a method in CurveGrid which makes gridlines to an arbitrary
+        # boundary curve.
+
+        self.frame.set_height(4.0)
+
+        # Poincare disk
         circle = ParametricCurve(polar_vec, (0, TAU, TAU / 100))
         self.add(circle)
+
+        # Tracker for the derivative at 0
+        deriv_at_zero = VGroup()
+        deriv_at_zero.add(Tex("f'(0)="))
+        deriv_at_zero.add(
+            DecimalNumber(num_decimal_places=5).next_to(deriv_at_zero[0], RIGHT, 0.2)
+        )
+        deriv_at_zero.set_height(0.3).next_to(circle, DOWN, 0.5)
+        self.add(deriv_at_zero)
 
         # Make a square grid
         grid = CurveGrid.make_linear((-0.2, 0.2), (-0.2, 0.2), 9, 49, 9, 49)
         self.add(grid)
+        df_tracker = ValueTracker(0.2 * np.sqrt(2))
+        deriv_at_zero[1].add_updater(
+            lambda mobj: mobj.set_value(df_tracker.get_value())
+        )
 
         # Expand it
         tgrid = grid.transform(lambda v: v * 2.5 * np.sqrt(2))
-        self.play(grid.animate.become(tgrid))
+        self.play(
+            grid.animate.become(tgrid),
+            df_tracker.animate.set_value(1.0),
+            rate_func=linear,
+        )
         self.remove(grid)
         grid = tgrid
         self.add(grid)
 
         ## Automorphism associated to a point not inside the domain.
-        grid = self.do_riemann_mapping_expansion(grid, complex(0.8, 0))
+        a = complex(0, 0.8)
+        grid = self.do_riemann_mapping_expansion(
+            grid, a, do_steps=True, show_dots=True, run_time=3.0
+        )
+        df_tracker.set_value(
+            df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
+        )
 
-        # Do iterative expansions
-        a = complex(0.9, 0)
-        for i in range(10):
-            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+        # Do iterative expansions to points on the boundary. First with steps shown,
+        # then sped along
+        for i in range(3):
+            # Get the boundary point which is furthest from the origin
+            best_p = min(
+                [p for p in grid.get_boundary_points() if np.linalg.norm(p) < 1.0],
+                key=np.linalg.norm,
+                default=None,
+            )
+
+            # Scale it slightly out towards norm 1 partway
+            a = vect3_to_cx(best_p) / math.pow(np.linalg.norm(best_p), 0.2)
+
+            # Do mapping
+            # TODO If a is in the lower-right
+            grid = self.do_riemann_mapping_expansion(
+                grid,
+                a,
+                do_steps=True,
+                show_dots=True,
+                run_time=3.0,
+            )
+
+            df_tracker.set_value(
+                df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
+            )
+
             print(f"Iteration {i}")
 
-        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
+        for i in range(100):
+            # Get the boundary point which is furthest from the origin
+            best_p = min(
+                [p for p in grid.get_boundary_points() if np.linalg.norm(p) < 1.0],
+                key=np.linalg.norm,
+                default=None,
+            )
 
-        for i in range(10):
-            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
+            # Scale it slightly out towards norm 1 partway
+            a = vect3_to_cx(best_p) / math.pow(np.linalg.norm(best_p), 0.2)
+
+            # Do mapping
+            # TODO If a is in the lower-right
+            grid = self.do_riemann_mapping_expansion(
+                grid,
+                a,
+                do_steps=False,
+                show_dots=False,
+                run_time=0.03 * 25 / (25 + i),
+                rate_func=linear,
+            )
+
+            df_tracker.set_value(
+                df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
+            )
+
             print(f"Iteration {i}")
-
-        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
-
-        for i in range(10):
-            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
-            print(f"Iteration {i}")
-
-        grid = self.do_fn(grid, lambda z: z * complex(0, 1), 0.2)
-
-        for i in range(10):
-            grid = self.do_riemann_mapping_expansion(grid, a, False, 0.2)
-            print(f"Iteration {i}")
-
-        # TODO Find a method to locate points in the Poincare disk which lie outside of the grid.
-        # One possibility is to follow any curve a bit beyond the last point, without going outside of the disk.
-
-        self.embed()
 
 
 class LocalGridScene(Scene):
