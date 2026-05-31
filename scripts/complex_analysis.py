@@ -105,7 +105,11 @@ class CurveGridGeneric(VGroup):
         num_anchors_x,
         num_anchors_y,
     ):
-        """Used at the outset to initialize a grid for a generic convex region."""
+        """
+        Used at the outset to initialize a grid for a generic convex region.
+        Assumes the sequence of boundary curves goes in order and is oriented,
+        i.e. each one ends where the previous one starts.
+        """
         grid = CurveGridGeneric()
         grid.num_curves_x = num_curves_x
         grid.num_curves_y = num_curves_y
@@ -126,10 +130,9 @@ class CurveGridGeneric(VGroup):
         x_min_values = []
         x_max_values = []
 
-        # TODO Generalize to multiple curves
-        assert len(bdy_curves) == 1
-        curve = bdy_curves[0]
-        anchors = curve.anchors[:-1]
+        anchors = []
+        for curve in bdy_curves:
+            anchors.extend(curve.anchors[:-1])
 
         # First, cyclically permute the anchors until the first one in the list has minimal x-coordinate
         min_index = min(range(len(anchors)), key=lambda i: anchors[i][0])
@@ -142,22 +145,16 @@ class CurveGridGeneric(VGroup):
 
         for i in range(len(anchors)):
             a, b = anchors[i], anchors[(i + 1) % len(anchors)]
+            if a[0] > b[0]:
+                a, b = b, a
             a_x = ((a[0] - xmin) / x_delta) - 1
             b_x = ((b[0] - xmin) / x_delta) - 1
-            if a_x < b_x:
-                for j in range(
-                    max(math.ceil(a_x), 0), min(math.floor(b_x) + 1, num_curves_x)
-                ):
-                    x_crossings[j].append(
-                        a[1] + (x_values[j] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
-                    )
-            else:
-                for j in range(
-                    max(math.ceil(b_x), 0), min(math.floor(a_x) + 1, num_curves_x)
-                ):
-                    x_crossings[j].append(
-                        a[1] + (x_values[j] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
-                    )
+            for j in range(
+                max(math.ceil(a_x), 0), min(math.floor(b_x) + 1, num_curves_x)
+            ):
+                x_crossings[j].append(
+                    a[1] + (x_values[j] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+                )
 
         # Use the result to construct the min and max values
         grid.anchors_x = []
@@ -185,22 +182,16 @@ class CurveGridGeneric(VGroup):
 
         for i in range(len(anchors)):
             a, b = anchors[i], anchors[(i + 1) % len(anchors)]
+            if a[1] > b[1]:
+                a, b = b, a
             a_y = ((a[1] - ymin) / y_delta) - 1
             b_y = ((b[1] - ymin) / y_delta) - 1
-            if a_y < b_y:
-                for j in range(
-                    max(math.ceil(a_y), 0), min(math.floor(b_y) + 1, num_curves_y)
-                ):
-                    y_crossings[j].append(
-                        a[0] + (y_values[j] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
-                    )
-            else:
-                for j in range(
-                    max(math.ceil(b_y), 0), min(math.floor(a_y) + 1, num_curves_y)
-                ):
-                    y_crossings[j].append(
-                        a[0] + (y_values[j] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
-                    )
+            for j in range(
+                max(math.ceil(a_y), 0), min(math.floor(b_y) + 1, num_curves_y)
+            ):
+                y_crossings[j].append(
+                    a[0] + (y_values[j] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                )
 
         # Use the result to construct the min and max values
         grid.anchors_y = []
@@ -254,6 +245,8 @@ class CurveGridGeneric(VGroup):
         grid = CurveGridGeneric()
         grid.num_curves_x = len(anchors_x)
         grid.num_curves_y = len(anchors_y)
+        grid.anchors_x = anchors_x
+        grid.anchors_y = anchors_y
 
         grid.add(VGroup(*bdy_curves))
         grid.add(
@@ -295,6 +288,46 @@ class CurveGridGeneric(VGroup):
 
     def get_anchors_y(self):
         return self.anchors_y
+
+    def get_boundary_points(self) -> list[Vect3]:
+        """Gets anchors along the bounding curves. Assumes the region is non-self-intersecting"""
+        result = []
+        for curve in self[0]:
+            result.extend(curve.anchors)
+        return result
+
+    def get_phase_bounds(self) -> tuple[float, float]:
+        """Gets theta_min < theta_max so that all points in the grid have phase lying within
+        these two angles. Assumes the grid is simply-connected and doesn't encircle 0."""
+        bdy_pts = self.get_boundary_points()
+        num_pts = len(bdy_pts)
+
+        # Get the phases, sorted
+        as_complex = [vect3_to_cx(p) for p in bdy_pts]
+        phases = list(map(cmath.phase, [vect3_to_cx(p) for p in bdy_pts]))
+        phases = sorted(phases)
+
+        # Find the largest difference -- this is the jump from theta_max to theta_min
+        diffs = [(phases[(i + 1) % num_pts] - phases[i]) % TAU for i in range(num_pts)]
+        ind = np.argmax(diffs)
+        theta_max = phases[ind]
+        theta_min = phases[(ind + 1) % num_pts]
+
+        # Shift so that -pi < theta_min < pi and theta_min < theta_max
+        if theta_max - theta_min < 0:
+            theta_max += TAU
+        if theta_min >= PI:
+            theta_min -= TAU
+            theta_max -= TAU
+
+        return theta_min, theta_max
+
+    def get_sqrt_fn(self) -> Callable[[complex], complex]:
+        theta_min, theta_max = self.get_phase_bounds()
+        phi = (theta_min + theta_max) / 2
+        return lambda z: cmath.sqrt(z * cmath.exp(complex(0, -phi))) * cmath.exp(
+            complex(0, phi / 2)
+        )
 
     def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
         """Transforms the anchors according to the given function, and uses the images to draw a new curve.
@@ -745,18 +778,26 @@ class RiemannMapping(Scene):
         # boundary curve.
 
         self.frame.set_height(4.0)
-        curve = Curve.make_from_anchors(
-            *[np.array([np.cos(t), np.sin(t), 0]) for t in np.linspace(0, TAU, 100)]
+
+        other_curve = Curve.make_from_anchors(
+            *[
+                np.array(
+                    [
+                        0.5 * np.cos(t) + 0.15 * np.sin(2 * t),
+                        0.5 * np.sin(t) - 0.1 * np.cos(3 * t),
+                        0,
+                    ]
+                )
+                for t in np.linspace(0, TAU, 100)
+            ]
         ).set_color(BLUE)
-
-        grid = CurveGridGeneric.make_from_boundary([curve], 15, 15, 30, 30)
-        self.add(grid)
-
-        self.embed()
+        other_grid = CurveGridGeneric.make_from_boundary([other_curve], 15, 15, 30, 30)
 
         # Poincare disk
         circle = ParametricCurve(polar_vec, (0, TAU, TAU / 100))
         self.add(circle)
+
+        self.embed()
 
         # Tracker for the derivative at 0
         deriv_at_zero = VGroup()
