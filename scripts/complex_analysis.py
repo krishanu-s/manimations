@@ -131,114 +131,91 @@ class CurveGridGeneric(VGroup):
         curve = bdy_curves[0]
         anchors = curve.anchors[:-1]
 
-        # First sort in ascending x-value order, and going counterclockwise
+        # First, cyclically permute the anchors until the first one in the list has minimal x-coordinate
         min_index = min(range(len(anchors)), key=lambda i: anchors[i][0])
         anchors = anchors[min_index:] + anchors[:min_index]
-        while anchors[0][0] >= anchors[1][0]:
-            anchors = anchors[1:] + anchors[:1]
-        if anchors[1][1] > anchors[0][1]:
-            anchors = anchors[:1] + anchors[1:][::-1]
-        while anchors[0][0] >= anchors[1][0]:
-            anchors = anchors[1:] + anchors[:1]
 
-        ix = 0
-        i = 0
-        while True:
-            a, b = anchors[i], anchors[i + 1]
-            if a[0] > x_values[-1] or b[0] <= a[0]:
-                break
-            while b[0] > x_values[ix]:
-                y_min_values.append(
-                    a[1] + (x_values[ix] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+        # Proceed through, marking the y-coordinates every time we cross a grid line, in order.
+        # Grid lines are numbered 1 through num_curves_x.
+        x_crossings = [[] for _ in range(len(x_values))]
+        x_delta = (xmax - xmin) / (num_curves_x + 1)
+
+        for i in range(len(anchors)):
+            a, b = anchors[i], anchors[(i + 1) % len(anchors)]
+            a_x = ((a[0] - xmin) / x_delta) - 1
+            b_x = ((b[0] - xmin) / x_delta) - 1
+            if a_x < b_x:
+                for j in range(
+                    max(math.ceil(a_x), 0), min(math.floor(b_x) + 1, num_curves_x)
+                ):
+                    x_crossings[j].append(
+                        a[1] + (x_values[j] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+                    )
+            else:
+                for j in range(
+                    max(math.ceil(b_x), 0), min(math.floor(a_x) + 1, num_curves_x)
+                ):
+                    x_crossings[j].append(
+                        a[1] + (x_values[j] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+                    )
+
+        # Use the result to construct the min and max values
+        grid.anchors_x = []
+        for i, li in enumerate(x_crossings):
+            while len(li) > 0:
+                grid.anchors_x.append(
+                    np.stack(
+                        [
+                            np.array([x_values[i], y, 0])
+                            for y in np.linspace(li[0], li[-1], num_anchors_x)
+                        ],
+                        axis=0,
+                    )
                 )
-                ix += 1
-                if ix == len(x_values):
-                    break
-            i += 1
+                li = li[1:-1]
 
-        # Then sort in ascending x-value order, and going clockwise
-        if anchors[1][1] < anchors[0][1]:
-            anchors = anchors[:1] + anchors[1:][::-1]
-        while anchors[0][0] >= anchors[1][0]:
-            anchors = anchors[1:] + anchors[:1]
-
-        ix = 0
-        i = 0
-        while True:
-            a, b = anchors[i], anchors[i + 1]
-            if a[0] > x_values[-1] or b[0] <= a[0]:
-                break
-            while b[0] > x_values[ix]:
-                y_max_values.append(
-                    a[1] + (x_values[ix] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
-                )
-                ix += 1
-                if ix == len(x_values):
-                    break
-            i += 1
-
-        # Then do the same for y
-
+        # Next, cyclically permute the anchors until the first one in the list has minimal y-coordinate
         min_index = min(range(len(anchors)), key=lambda i: anchors[i][1])
         anchors = anchors[min_index:] + anchors[:min_index]
-        while anchors[0][1] >= anchors[1][1]:
-            anchors = anchors[1:] + anchors[:1]
-        if anchors[1][0] > anchors[0][0]:
-            anchors = anchors[:1] + anchors[1:][::-1]
-        while anchors[0][1] >= anchors[1][1]:
-            anchors = anchors[1:] + anchors[:1]
 
-        iy = 0
-        i = 0
-        while True:
-            a, b = anchors[i], anchors[i + 1]
-            if a[1] > y_values[-1] or b[1] <= a[1]:
-                break
-            while b[1] > y_values[iy]:
-                x_min_values.append(
-                    a[0] + (y_values[iy] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+        # Proceed through, marking the y-coordinates every time we cross a grid line, in order.
+        # Grid lines are numbered 1 through num_curves_x.
+        y_crossings = [[] for _ in range(len(y_values))]
+        y_delta = (ymax - ymin) / (num_curves_y + 1)
+
+        for i in range(len(anchors)):
+            a, b = anchors[i], anchors[(i + 1) % len(anchors)]
+            a_y = ((a[1] - ymin) / y_delta) - 1
+            b_y = ((b[1] - ymin) / y_delta) - 1
+            if a_y < b_y:
+                for j in range(
+                    max(math.ceil(a_y), 0), min(math.floor(b_y) + 1, num_curves_y)
+                ):
+                    y_crossings[j].append(
+                        a[0] + (y_values[j] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                    )
+            else:
+                for j in range(
+                    max(math.ceil(b_y), 0), min(math.floor(a_y) + 1, num_curves_y)
+                ):
+                    y_crossings[j].append(
+                        a[0] + (y_values[j] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                    )
+
+        # Use the result to construct the min and max values
+        grid.anchors_y = []
+        for i, li in enumerate(y_crossings):
+            while len(li) > 0:
+                grid.anchors_y.append(
+                    np.stack(
+                        [
+                            np.array([x, y_values[i], 0])
+                            for x in np.linspace(li[0], li[-1], num_anchors_y)
+                        ],
+                        axis=0,
+                    )
                 )
-                iy += 1
-                if iy == len(y_values):
-                    break
-            i += 1
-
-        # Then sort in ascending x-value order, and going clockwise
-        if anchors[1][0] < anchors[0][0]:
-            anchors = anchors[:1] + anchors[1:][::-1]
-        while anchors[0][1] >= anchors[1][1]:
-            anchors = anchors[1:] + anchors[:1]
-
-        iy = 0
-        i = 0
-        while True:
-            a, b = anchors[i], anchors[i + 1]
-            if a[1] > y_values[-1] or b[1] <= a[1]:
-                break
-            while b[1] > y_values[iy]:
-                x_max_values.append(
-                    a[0] + (y_values[iy] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
-                )
-                iy += 1
-                if iy == len(y_values):
-                    break
-            i += 1
-
-        # Set the anchors
-        grid.anchors_x = [
-            np.stack(
-                [np.array([x, y, 0]) for y in np.linspace(ymi, yma, num_anchors_x)],
-                axis=0,
-            )
-            for x, ymi, yma in zip(x_values, y_min_values, y_max_values)
-        ]
-        grid.anchors_y = [
-            np.stack(
-                [np.array([x, y, 0]) for x in np.linspace(xmi, xma, num_anchors_y)],
-                axis=0,
-            )
-            for y, xmi, xma in zip(y_values, x_min_values, x_max_values)
-        ]
+                li = li[1:-1]
 
         # (4) Make the grid lines.
         x_curves = [
