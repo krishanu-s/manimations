@@ -76,9 +76,267 @@ class Curve(VMobject):
         """Retrieves the anchors."""
         return list(self.data["point"][::6]) + [self.data["point"][-1]]
 
-    def transform(self, fn: Callable[[Vect3], Vect3]) -> Curve:
+    def transform(self, fn: Callable[[Vect3], Vect3], **style_kwargs) -> Curve:
         """Transforms the anchors according to the given function, and uses the images to draw a new curve."""
-        return Curve.make_from_anchors(*map(fn, self.anchors))
+        return Curve.make_from_anchors(*map(fn, self.anchors), **style_kwargs)
+
+
+# TODO Address the case where anchors in each direction can be, generically,
+
+
+class CurveGridGeneric(VGroup):
+    """A grid of curves tiling the interior of a planar domain"""
+
+    # Three subfamilies:
+    # - Boundary curves
+    # - X-grid curves (vertical)
+    # - Y-grid curves (horizontal)
+    anchors_x: list[FloatArray]  # Array of shape (m, N, 3).
+    anchors_y: list[FloatArray]  # Array of shape (n, M, 3).
+    num_curves_x: int  # m
+    num_curves_y: int  # n
+
+    @classmethod
+    def make_from_boundary(
+        cls,
+        bdy_curves: list[Curve],
+        num_curves_x,
+        num_curves_y,
+        num_anchors_x,
+        num_anchors_y,
+    ):
+        """Used at the outset to initialize a grid for a generic convex region."""
+        grid = CurveGridGeneric()
+        grid.num_curves_x = num_curves_x
+        grid.num_curves_y = num_curves_y
+
+        # (1) Find xmin, xmax, ymin, ymax
+        xmin = min([a[0] for curve in bdy_curves for a in curve.anchors])
+        xmax = max([a[0] for curve in bdy_curves for a in curve.anchors])
+        ymin = min([a[1] for curve in bdy_curves for a in curve.anchors])
+        ymax = max([a[1] for curve in bdy_curves for a in curve.anchors])
+
+        # (2) Set x-values of vertical lines, and y-values of horizontal lines
+        x_values = np.linspace(xmin, xmax, num_curves_x + 2)[1:-1]
+        y_values = np.linspace(ymin, ymax, num_curves_y + 2)[1:-1]
+
+        # (3) For each x-value, find the min/max y-values along the boundary curve. Same for the y-values
+        y_min_values = []
+        y_max_values = []
+        x_min_values = []
+        x_max_values = []
+
+        # TODO Generalize to multiple curves
+        assert len(bdy_curves) == 1
+        curve = bdy_curves[0]
+        anchors = curve.anchors[:-1]
+
+        # First sort in ascending x-value order, and going counterclockwise
+        min_index = min(range(len(anchors)), key=lambda i: anchors[i][0])
+        anchors = anchors[min_index:] + anchors[:min_index]
+        while anchors[0][0] >= anchors[1][0]:
+            anchors = anchors[1:] + anchors[:1]
+        if anchors[1][1] > anchors[0][1]:
+            anchors = anchors[:1] + anchors[1:][::-1]
+        while anchors[0][0] >= anchors[1][0]:
+            anchors = anchors[1:] + anchors[:1]
+
+        ix = 0
+        i = 0
+        while True:
+            a, b = anchors[i], anchors[i + 1]
+            if a[0] > x_values[-1] or b[0] <= a[0]:
+                break
+            while b[0] > x_values[ix]:
+                y_min_values.append(
+                    a[1] + (x_values[ix] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+                )
+                ix += 1
+                if ix == len(x_values):
+                    break
+            i += 1
+
+        # Then sort in ascending x-value order, and going clockwise
+        if anchors[1][1] < anchors[0][1]:
+            anchors = anchors[:1] + anchors[1:][::-1]
+        while anchors[0][0] >= anchors[1][0]:
+            anchors = anchors[1:] + anchors[:1]
+
+        ix = 0
+        i = 0
+        while True:
+            a, b = anchors[i], anchors[i + 1]
+            if a[0] > x_values[-1] or b[0] <= a[0]:
+                break
+            while b[0] > x_values[ix]:
+                y_max_values.append(
+                    a[1] + (x_values[ix] - a[0]) * (b[1] - a[1]) / (b[0] - a[0])
+                )
+                ix += 1
+                if ix == len(x_values):
+                    break
+            i += 1
+
+        # Then do the same for y
+
+        min_index = min(range(len(anchors)), key=lambda i: anchors[i][1])
+        anchors = anchors[min_index:] + anchors[:min_index]
+        while anchors[0][1] >= anchors[1][1]:
+            anchors = anchors[1:] + anchors[:1]
+        if anchors[1][0] > anchors[0][0]:
+            anchors = anchors[:1] + anchors[1:][::-1]
+        while anchors[0][1] >= anchors[1][1]:
+            anchors = anchors[1:] + anchors[:1]
+
+        iy = 0
+        i = 0
+        while True:
+            a, b = anchors[i], anchors[i + 1]
+            if a[1] > y_values[-1] or b[1] <= a[1]:
+                break
+            while b[1] > y_values[iy]:
+                x_min_values.append(
+                    a[0] + (y_values[iy] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                )
+                iy += 1
+                if iy == len(y_values):
+                    break
+            i += 1
+
+        # Then sort in ascending x-value order, and going clockwise
+        if anchors[1][0] < anchors[0][0]:
+            anchors = anchors[:1] + anchors[1:][::-1]
+        while anchors[0][1] >= anchors[1][1]:
+            anchors = anchors[1:] + anchors[:1]
+
+        iy = 0
+        i = 0
+        while True:
+            a, b = anchors[i], anchors[i + 1]
+            if a[1] > y_values[-1] or b[1] <= a[1]:
+                break
+            while b[1] > y_values[iy]:
+                x_max_values.append(
+                    a[0] + (y_values[iy] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+                )
+                iy += 1
+                if iy == len(y_values):
+                    break
+            i += 1
+
+        # Set the anchors
+        grid.anchors_x = [
+            np.stack(
+                [np.array([x, y, 0]) for y in np.linspace(ymi, yma, num_anchors_x)],
+                axis=0,
+            )
+            for x, ymi, yma in zip(x_values, y_min_values, y_max_values)
+        ]
+        grid.anchors_y = [
+            np.stack(
+                [np.array([x, y, 0]) for x in np.linspace(xmi, xma, num_anchors_y)],
+                axis=0,
+            )
+            for y, xmi, xma in zip(y_values, x_min_values, x_max_values)
+        ]
+
+        # (4) Make the grid lines.
+        x_curves = [
+            Curve.make_from_anchors(
+                *a,
+                stroke_width=1.0,
+                stroke_opacity=0.5,
+                stroke_color=BLUE,
+            )
+            for a in grid.anchors_x
+        ]
+        y_curves = [
+            Curve.make_from_anchors(
+                *a,
+                stroke_width=1.0,
+                stroke_opacity=0.5,
+                stroke_color=BLUE,
+            )
+            for a in grid.anchors_y
+        ]
+
+        grid.add(VGroup(*bdy_curves))
+        grid.add(VGroup(*x_curves))
+        grid.add(VGroup(*y_curves))
+        return grid
+
+    @classmethod
+    def make_from_boundary_and_anchors(
+        cls,
+        bdy_curves: list[Curve],
+        anchors_x: list[FloatArray],
+        anchors_y: list[FloatArray],
+    ):
+        """Here, we are given the anchors defining each grid curve explicitly.
+        This is used when transforming another such grid."""
+        grid = CurveGridGeneric()
+        grid.num_curves_x = len(anchors_x)
+        grid.num_curves_y = len(anchors_y)
+
+        grid.add(VGroup(*bdy_curves))
+        grid.add(
+            VGroup(
+                *[
+                    Curve.make_from_anchors(
+                        *a,
+                        stroke_width=1.0,
+                        stroke_opacity=0.5,
+                        stroke_color=BLUE,
+                    )
+                    for a in anchors_x
+                ]
+            )
+        )
+        grid.add(
+            VGroup(
+                *[
+                    Curve.make_from_anchors(
+                        *a,
+                        stroke_width=1.0,
+                        stroke_opacity=0.5,
+                        stroke_color=BLUE,
+                    )
+                    for a in anchors_y
+                ]
+            )
+        )
+        return grid
+
+    def get_curve_x(self, i: int):
+        return self[1][i]
+
+    def get_curve_y(self, i: int):
+        return self[2][i]
+
+    def get_anchors_x(self):
+        return self.anchors_x
+
+    def get_anchors_y(self):
+        return self.anchors_y
+
+    def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
+        """Transforms the anchors according to the given function, and uses the images to draw a new curve.
+        Assumes the function isn't vectorized."""
+        anchors_x = self.get_anchors_x()
+        anchors_y = self.get_anchors_y()
+        mapped_bdy_curves = [c.transform(fn, stroke_color=BLUE) for c in self[0]]
+        mapped_anchors_x = [
+            np.stack([fn(a) for a in anchors_x[i]], axis=0)
+            for i in range(self.num_curves_x)
+        ]
+
+        mapped_anchors_y = [
+            np.stack([fn(a) for a in anchors_y[i]], axis=0)
+            for i in range(self.num_curves_y)
+        ]
+        return CurveGridGeneric.make_from_boundary_and_anchors(
+            mapped_bdy_curves, mapped_anchors_x, mapped_anchors_y
+        )
 
 
 class CurveGrid(VGroup):
@@ -86,49 +344,73 @@ class CurveGrid(VGroup):
     The m vertical (x) curves each are defined by N anchors, where N - 1 is a multiple of n - 1.
     The n horizontal (y)  curves are each defined by M anchors, where M - 1 is a multiple of m - 1."""
 
+    # Three subfamilies:
+    # - X-curves
+    # - Y-curves
+    # - Boundary curves
+
     anchors_x: FloatArray  # Array of shape (m, N, 3).
     anchors_y: FloatArray  # Array of shape (n, M, 3).
     num_curves_x: int  # m
     num_curves_y: int  # n
-    num_anchors_x: int  # M
-    num_anchors_y: int  # N
 
     @classmethod
     def make_from_anchors(cls, anchors_x: FloatArray, anchors_y: FloatArray):
-        """Initializes the grid from the set of anchors for each crossing set."""
+        """Initializes the grid from two arrays of anchors -- one defining the vertical lines, and one
+        defining the horizontal lines. Is the same as the image of a rectilinear grid under
+        a conformal map."""
         grid = CurveGrid()
         grid.anchors_x = anchors_x
         grid.anchors_y = anchors_y
         grid.num_curves_x = anchors_x.shape[0]
-        grid.num_anchors_y = anchors_x.shape[1]
-
         grid.num_curves_y = anchors_y.shape[0]
-        grid.num_anchors_x = anchors_y.shape[1]
 
-        # Make the first and last in each coordinate brighter than the rest
+        boundary_curves = VGroup()
+        boundary_stroke_opacity = 1.0
+        boundary_stroke_width = 3.0
+
+        x_curves = VGroup()
+        y_curves = VGroup()
+        grid_stroke_opacity = 0.5
+        grid_stroke_width = 1.0
+
+        # Boundary curves
+        for a in anchors_x, anchors_y:
+            for i in (0, -1):
+                boundary_curves.add(
+                    Curve.make_from_anchors(
+                        *list(a[i, :, :]),
+                        stroke_opacity=boundary_stroke_opacity,
+                        stroke_width=boundary_stroke_width,
+                        stroke_color=BLUE,
+                    )
+                )
+
+        # X-curves
         for i in range(grid.num_curves_x):
-            stroke_opacity = 1.0 if (i == 0) or (i == grid.num_curves_x - 1) else 0.5
-            stroke_width = 3.0 if (i == 0) or (i == grid.num_curves_x - 1) else 1.0
-            grid.add(
+            x_curves.add(
                 Curve.make_from_anchors(
                     *list(anchors_x[i, :, :]),
-                    stroke_opacity=stroke_opacity,
-                    stroke_width=stroke_width,
+                    stroke_opacity=grid_stroke_opacity,
+                    stroke_width=grid_stroke_width,
                     stroke_color=BLUE,
                 )
             )
 
+        # Y-curves
         for i in range(grid.num_curves_y):
-            stroke_opacity = 1.0 if (i == 0) or (i == grid.num_curves_y - 1) else 0.5
-            stroke_width = 3.0 if (i == 0) or (i == grid.num_curves_y - 1) else 1.0
-            grid.add(
+            y_curves.add(
                 Curve.make_from_anchors(
                     *list(anchors_y[i, :, :]),
-                    stroke_opacity=stroke_opacity,
-                    stroke_width=stroke_width,
+                    stroke_opacity=grid_stroke_opacity,
+                    stroke_width=grid_stroke_width,
                     stroke_color=BLUE,
                 )
             )
+
+        grid.add(boundary_curves)
+        grid.add(x_curves)
+        grid.add(y_curves)
 
         return grid
 
@@ -142,6 +424,7 @@ class CurveGrid(VGroup):
         num_curves_y: int,
         num_anchors_y: int,
     ):
+        """Makes a rectilinear grid bounded by a rectangular region. The most specialized type of grid."""
         xmin, xmax = xlims
         ymin, ymax = ylims
         anchors_x = np.array(
@@ -165,10 +448,10 @@ class CurveGrid(VGroup):
         self.anchors_y = grid.anchors_y
 
     def get_curve_x(self, i: int):
-        return self[i]
+        return self[1][i]
 
     def get_curve_y(self, i: int):
-        return self[self.num_curves_x + i]
+        return self[2][i]
 
     def get_anchors_x(self):
         return self.anchors_x
@@ -176,17 +459,12 @@ class CurveGrid(VGroup):
     def get_anchors_y(self):
         return self.anchors_y
 
-    def get_boundary_points(self) -> FloatArray:
+    def get_boundary_points(self) -> list[Vect3]:
         """Gets anchors along the bounding curves. Assumes the region is non-self-intersecting"""
-        return np.concatenate(
-            [
-                self.anchors_x[0],
-                self.anchors_x[-1],
-                self.anchors_y[0],
-                self.anchors_y[-1],
-            ],
-            axis=0,
-        )
+        result = []
+        for curve in self[0]:
+            result.extend(curve.anchors)
+        return result
 
     def get_phase_bounds(self) -> tuple[float, float]:
         """Gets theta_min < theta_max so that all points in the grid have phase lying within
@@ -228,9 +506,7 @@ class CurveGrid(VGroup):
         anchors_y = self.get_anchors_y()
         mapped_anchors_x = np.stack(
             [
-                np.stack(
-                    [fn(anchors_x[i, j]) for j in range(self.num_anchors_y)], axis=0
-                )
+                np.stack([fn(a) for a in anchors_x[i]], axis=0)
                 for i in range(self.num_curves_x)
             ],
             axis=0,
@@ -238,9 +514,7 @@ class CurveGrid(VGroup):
 
         mapped_anchors_y = np.stack(
             [
-                np.stack(
-                    [fn(anchors_y[i, j]) for j in range(self.num_anchors_x)], axis=0
-                )
+                np.stack([fn(a) for a in anchors_y[i]], axis=0)
                 for i in range(self.num_curves_y)
             ],
             axis=0,
@@ -346,9 +620,12 @@ class RiemannMapping(Scene):
         do_steps: bool = True,
         show_dots: bool = True,
         run_time: float = 3.0,
+        wait_time_between_steps=0.5,
         **anim_kwargs,
     ) -> CurveGrid:
         """
+        Primary workhorse step of the algorithm.
+
         Given a domain in the Poincare disk which contains 0, and a point a
         which lies outside of it, performs a series of animations to deform the
         grid to be larger while still lying within the Poincare disk, as follows:
@@ -376,13 +653,14 @@ class RiemannMapping(Scene):
         if abs(phi - pa) > PI:
             cx_rot *= -1
 
+        # Setup if we're showing the dots
         if show_dots:
+            zero_dot = Dot((0, 0, 0), radius=0.02).set_color(WHITE)
             a_dot = VGroup()
             a_dot.add(Dot((a.real, a.imag, 0), radius=0.02).set_color(RED))
             a_dot.add(
                 Tex("\\alpha", font_size=12).set_color(RED).next_to(a_dot[0], UR, 0.03)
             )
-            a_dot.set_height(0.2)
             sa_dot = VGroup()
             sa_dot.add(Dot((sa.real, sa.imag, 0), radius=0.02).set_color(GREEN))
             sa_dot.add(
@@ -390,37 +668,84 @@ class RiemannMapping(Scene):
                 .set_color(GREEN)
                 .next_to(sa_dot[0], UR, 0.03)
             )
-            sa_dot.set_height(0.2)
 
+        # Do animation
         if show_dots & do_steps:
-            self.play(FadeIn(a_dot), run_time=run_time / 10)
-            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
+            self.play(FadeIn(zero_dot), FadeIn(a_dot), run_time=run_time / 10)
+            grid = self.do_pdisk_aut(
+                grid,
+                a,
+                run_time=run_time / 4,
+                other_animations=[zero_dot.animate.move_to((a.real, a.imag, 0))],
+                **anim_kwargs,
+            )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
             self.play(FadeIn(sa_dot), run_time=run_time / 10)
-            grid = self.do_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
-            grid = self.do_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
+            grid = self.do_fn(
+                grid,
+                sqrt_fn,
+                run_time=run_time / 4,
+                other_animations=[zero_dot.animate.move_to((sa.real, sa.imag, 0))],
+                **anim_kwargs,
+            )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
+            grid = self.do_pdisk_aut(
+                grid,
+                sa,
+                run_time=run_time / 4,
+                other_animations=[
+                    zero_dot.animate.move_to((0, 0, 0)),
+                ],
+                **anim_kwargs,
+            )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
             grid = self.do_fn(
                 grid,
                 lambda z: z * cx_rot,
                 run_time=run_time / 4,
-                other_animations=[FadeOut(a_dot), FadeOut(sa_dot)],
+                other_animations=[
+                    FadeOut(a_dot),
+                    FadeOut(sa_dot),
+                    FadeOut(zero_dot),
+                ],
                 **anim_kwargs,
             )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
         elif (show_dots != True) & do_steps:
             grid = self.do_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
             grid = self.do_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
             grid = self.do_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
+
             grid = self.do_fn(
                 grid, lambda z: z * cx_rot, run_time=run_time / 4, **anim_kwargs
             )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
         elif show_dots & (do_steps != True):
-            self.play(FadeIn(a_dot), FadeIn(sa_dot), run_time=run_time / 3)
+            self.play(
+                FadeIn(zero_dot), FadeIn(a_dot), FadeIn(sa_dot), run_time=run_time / 3
+            )
             grid = self.do_fn(
                 grid,
                 lambda z: pdisk_aut(sa, sqrt_fn(pdisk_aut(a, z))) * cx_rot,
                 run_time=run_time,
                 **anim_kwargs,
             )
-            self.play(FadeOut(a_dot), FadeOut(sa_dot), run_time=run_time / 3)
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
+            self.play(
+                FadeIn(zero_dot), FadeOut(a_dot), FadeOut(sa_dot), run_time=run_time / 3
+            )
         else:
             grid = self.do_fn(
                 grid,
@@ -428,6 +753,8 @@ class RiemannMapping(Scene):
                 run_time=run_time,
                 **anim_kwargs,
             )
+            if wait_time_between_steps != 0:
+                self.wait(duration=wait_time_between_steps)
         return grid
 
     def construct(self):
@@ -441,6 +768,14 @@ class RiemannMapping(Scene):
         # boundary curve.
 
         self.frame.set_height(4.0)
+        curve = Curve.make_from_anchors(
+            *[np.array([np.cos(t), np.sin(t), 0]) for t in np.linspace(0, TAU, 100)]
+        ).set_color(BLUE)
+
+        grid = CurveGridGeneric.make_from_boundary([curve], 15, 15, 30, 30)
+        self.add(grid)
+
+        self.embed()
 
         # Poincare disk
         circle = ParametricCurve(polar_vec, (0, TAU, TAU / 100))
@@ -456,7 +791,7 @@ class RiemannMapping(Scene):
         self.add(deriv_at_zero)
 
         # Make a square grid
-        grid = CurveGrid.make_linear((-0.2, 0.2), (-0.2, 0.2), 9, 49, 9, 49)
+        grid = CurveGrid.make_linear((-0.2, 0.2), (-0.2, 0.2), 21, 101, 21, 101)
         self.add(grid)
         df_tracker = ValueTracker(0.2 * np.sqrt(2))
         deriv_at_zero[1].add_updater(
@@ -477,7 +812,12 @@ class RiemannMapping(Scene):
         ## Automorphism associated to a point not inside the domain.
         a = complex(0, 0.8)
         grid = self.do_riemann_mapping_expansion(
-            grid, a, do_steps=True, show_dots=True, run_time=3.0
+            grid,
+            a,
+            do_steps=True,
+            show_dots=True,
+            run_time=3.0,
+            wait_time_between_steps=1.0,
         )
         df_tracker.set_value(
             df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
@@ -485,7 +825,7 @@ class RiemannMapping(Scene):
 
         # Do iterative expansions to points on the boundary. First with steps shown,
         # then sped along
-        for i in range(3):
+        for i in range(2):
             # Get the boundary point which is furthest from the origin
             best_p = min(
                 [p for p in grid.get_boundary_points() if np.linalg.norm(p) < 1.0],
@@ -504,15 +844,14 @@ class RiemannMapping(Scene):
                 do_steps=True,
                 show_dots=True,
                 run_time=3.0,
+                wait_time_between_steps=0.5,
             )
 
             df_tracker.set_value(
                 df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
             )
 
-            print(f"Iteration {i}")
-
-        for i in range(100):
+        for i in range(200):
             # Get the boundary point which is furthest from the origin
             best_p = min(
                 [p for p in grid.get_boundary_points() if np.linalg.norm(p) < 1.0],
@@ -529,16 +868,15 @@ class RiemannMapping(Scene):
                 grid,
                 a,
                 do_steps=False,
-                show_dots=False,
-                run_time=0.03 * 25 / (25 + i),
+                show_dots=(i < 20),
+                run_time=0.05 * 50 / (50 + i),
                 rate_func=linear,
+                wait_time_between_steps=0.0,
             )
 
             df_tracker.set_value(
                 df_tracker.get_value() * (1 + abs(a)) / (2 * abs(cmath.sqrt(a)))
             )
-
-            print(f"Iteration {i}")
 
 
 class LocalGridScene(Scene):
@@ -775,7 +1113,7 @@ class TestingComplexFunctions(m.Scene):
 
         # G(z) function
         gamma_tex = Tex(
-            "\\Gamma(z) = \\frac{e^{\\gamma z}}{z}\\prod\\limits_{n=1}^{\infty} e^{\\frac{z}{n}}\\left(1 + \\frac{z}{n}\\right)^{-1}"
+            "\\Gamma(z) = \\frac{e^{\\gamma z}}{z}\\prod\\limits_{n=1}^{\\infty} e^{\\frac{z}{n}}\\left(1 + \\frac{z}{n}\\right)^{-1}"
         ).next_to(cx_frame, UP, 1.0)
         self.play(heatmap.animate.set_f(gamma_func), Transform(sin_tex, gamma_tex))
         g = sum(1 / n for n in range(1, 5000)) - np.log(5000)
