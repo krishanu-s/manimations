@@ -1,0 +1,16 @@
+{
+  "name": "riemann-mapping",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && esbuild src/riemann.ts --bundle --minify --outfile=dist/riemann.js",
+    "dev": "esbuild src/riemann.ts --bundle --sourcemap --outfile=dist/riemann.js --watch",
+    "deploy": "cp dist/riemann.js '/Users/ksankar/Local Sites/krishanusankar/app/public/wp-content/themes/assembler/assets/js/riemann.js'",
+    "build:deploy": "npm run build && npm run deploy"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
