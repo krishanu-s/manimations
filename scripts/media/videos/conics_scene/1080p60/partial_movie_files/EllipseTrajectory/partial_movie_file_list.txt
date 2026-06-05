@@ -1,0 +1,13 @@
+# This file is used internally by FFMPEG.
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3529212410_3405144909_3712053688.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_598372116_1919447042.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_2162738540_1481620951.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_455464950_2345086942.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_1985084395_1513516675.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_1904877329_54913715.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_4284333757_3102621909.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_3121262350_3494321120.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_1371814707_2488269866.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_2289320278_4197180952.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_471466514_1556847560.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/conics_scene/1080p60/partial_movie_files/EllipseTrajectory/3040924799_2308326_1984048857.mp4'

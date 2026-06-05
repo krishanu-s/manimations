@@ -81,9 +81,6 @@ class Curve(VMobject):
         return Curve.make_from_anchors(*map(fn, self.anchors), **style_kwargs)
 
 
-# TODO Address the case where anchors in each direction can be, generically,
-
-
 class CurveGridGeneric(VGroup):
     """A grid of curves tiling the interior of a planar domain"""
 
@@ -242,40 +239,60 @@ class CurveGridGeneric(VGroup):
     ):
         """Here, we are given the anchors defining each grid curve explicitly.
         This is used when transforming another such grid."""
-        grid = CurveGridGeneric()
-        grid.num_curves_x = len(anchors_x)
-        grid.num_curves_y = len(anchors_y)
-        grid.anchors_x = anchors_x
-        grid.anchors_y = anchors_y
-
+        grid = cls()
         grid.add(VGroup(*bdy_curves))
-        grid.add(
+        grid.make_grid_curves(anchors_x, anchors_y)
+        return grid
+
+    def make_grid_curves(
+        self,
+        anchors_x: FloatArray | list[FloatArray],
+        anchors_y: FloatArray | list[FloatArray],
+        grid_stroke_opacity=0.5,
+        grid_stroke_width=1.0,
+    ):
+        self.anchors_x = anchors_x
+        self.anchors_y = anchors_y
+        self.num_curves_x = len(anchors_x)
+        self.num_curves_y = len(anchors_y)
+
+        # X-curves
+        self.add(
             VGroup(
                 *[
                     Curve.make_from_anchors(
                         *a,
-                        stroke_width=1.0,
-                        stroke_opacity=0.5,
+                        stroke_width=grid_stroke_width,
+                        stroke_opacity=grid_stroke_opacity,
                         stroke_color=BLUE,
                     )
                     for a in anchors_x
                 ]
             )
         )
-        grid.add(
+
+        # Y-curves
+        self.add(
             VGroup(
                 *[
                     Curve.make_from_anchors(
                         *a,
-                        stroke_width=1.0,
-                        stroke_opacity=0.5,
+                        stroke_width=grid_stroke_width,
+                        stroke_opacity=grid_stroke_opacity,
                         stroke_color=BLUE,
                     )
                     for a in anchors_y
                 ]
             )
         )
-        return grid
+
+        return self
+
+    def become(self, grid: CurveGridGeneric, match_updaters=False):
+        """Becomes another grid, including updating all anchors"""
+        super().become(grid, match_updaters=match_updaters)
+        self.anchors_x = grid.anchors_x
+        self.anchors_y = grid.anchors_y
 
     def get_curve_x(self, i: int):
         return self[1][i]
@@ -295,6 +312,16 @@ class CurveGridGeneric(VGroup):
         for curve in self[0]:
             result.extend(curve.anchors)
         return result
+
+    def get_bbox(self) -> tuple[float, float, float, float]:
+        """Returns (xmin, xmax, ymin, ymax)"""
+        bdy_pts = self.get_boundary_points()
+        return (
+            min(v[0] for v in bdy_pts),
+            max(v[0] for v in bdy_pts),
+            min(v[1] for v in bdy_pts),
+            max(v[1] for v in bdy_pts),
+        )
 
     def get_phase_bounds(self) -> tuple[float, float]:
         """Gets theta_min < theta_max so that all points in the grid have phase lying within
@@ -329,98 +356,58 @@ class CurveGridGeneric(VGroup):
             complex(0, phi / 2)
         )
 
-    def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
+    def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGridGeneric:
         """Transforms the anchors according to the given function, and uses the images to draw a new curve.
         Assumes the function isn't vectorized."""
         anchors_x = self.get_anchors_x()
         anchors_y = self.get_anchors_y()
         mapped_bdy_curves = [c.transform(fn, stroke_color=BLUE) for c in self[0]]
         mapped_anchors_x = [
-            np.stack([fn(a) for a in anchors_x[i]], axis=0)
-            for i in range(self.num_curves_x)
+            np.stack([fn(a) for a in anc], axis=0)
+            for anc in anchors_x
         ]
 
         mapped_anchors_y = [
-            np.stack([fn(a) for a in anchors_y[i]], axis=0)
-            for i in range(self.num_curves_y)
+            np.stack([fn(a) for a in anc], axis=0)
+            for anc in anchors_y
         ]
         return CurveGridGeneric.make_from_boundary_and_anchors(
             mapped_bdy_curves, mapped_anchors_x, mapped_anchors_y
         )
 
 
-class CurveGrid(VGroup):
-    """A grid of curves passing through an array of points, intersecting to form an m-by-n grid.
-    The m vertical (x) curves each are defined by N anchors, where N - 1 is a multiple of n - 1.
-    The n horizontal (y)  curves are each defined by M anchors, where M - 1 is a multiple of m - 1."""
-
-    # Three subfamilies:
-    # - X-curves
-    # - Y-curves
-    # - Boundary curves
-
-    anchors_x: FloatArray  # Array of shape (m, N, 3).
-    anchors_y: FloatArray  # Array of shape (n, M, 3).
-    num_curves_x: int  # m
-    num_curves_y: int  # n
+class CurveGrid(CurveGridGeneric):
+    """Special case of CurveGridGeneric, where the array of intersection points has shape
+    m-by-n, i.e. the grid is a transformation of a rectilinear one.
+    The m vertical (x) curves each are defined by N anchors.
+    The n horizontal (y)  curves are each defined by M anchors."""
 
     @classmethod
     def make_from_anchors(cls, anchors_x: FloatArray, anchors_y: FloatArray):
         """Initializes the grid from two arrays of anchors -- one defining the vertical lines, and one
         defining the horizontal lines. Is the same as the image of a rectilinear grid under
         a conformal map."""
-        grid = CurveGrid()
-        grid.anchors_x = anchors_x
-        grid.anchors_y = anchors_y
-        grid.num_curves_x = anchors_x.shape[0]
-        grid.num_curves_y = anchors_y.shape[0]
-
-        boundary_curves = VGroup()
-        boundary_stroke_opacity = 1.0
-        boundary_stroke_width = 3.0
-
-        x_curves = VGroup()
-        y_curves = VGroup()
-        grid_stroke_opacity = 0.5
-        grid_stroke_width = 1.0
+        grid = cls()
 
         # Boundary curves
-        for a in anchors_x, anchors_y:
-            for i in (0, -1):
-                boundary_curves.add(
+        boundary_stroke_opacity = 1.0
+        boundary_stroke_width = 3.0
+        grid.add(
+            VGroup(
+                *[
                     Curve.make_from_anchors(
                         *list(a[i, :, :]),
                         stroke_opacity=boundary_stroke_opacity,
                         stroke_width=boundary_stroke_width,
                         stroke_color=BLUE,
                     )
-                )
-
-        # X-curves
-        for i in range(grid.num_curves_x):
-            x_curves.add(
-                Curve.make_from_anchors(
-                    *list(anchors_x[i, :, :]),
-                    stroke_opacity=grid_stroke_opacity,
-                    stroke_width=grid_stroke_width,
-                    stroke_color=BLUE,
-                )
+                    for a in (anchors_x, anchors_y)
+                    for i in (0, -1)
+                ]
             )
+        )
 
-        # Y-curves
-        for i in range(grid.num_curves_y):
-            y_curves.add(
-                Curve.make_from_anchors(
-                    *list(anchors_y[i, :, :]),
-                    stroke_opacity=grid_stroke_opacity,
-                    stroke_width=grid_stroke_width,
-                    stroke_color=BLUE,
-                )
-            )
-
-        grid.add(boundary_curves)
-        grid.add(x_curves)
-        grid.add(y_curves)
+        grid.make_grid_curves(anchors_x, anchors_y)
 
         return grid
 
@@ -451,64 +438,6 @@ class CurveGrid(VGroup):
         )
         return CurveGrid.make_from_anchors(anchors_x, anchors_y)
 
-    def become(self, grid: CurveGrid, match_updaters=False):
-        """Becomes another grid, including updating all anchors"""
-        super().become(grid, match_updaters=match_updaters)
-        self.anchors_x = grid.anchors_x
-        self.anchors_y = grid.anchors_y
-
-    def get_curve_x(self, i: int):
-        return self[1][i]
-
-    def get_curve_y(self, i: int):
-        return self[2][i]
-
-    def get_anchors_x(self):
-        return self.anchors_x
-
-    def get_anchors_y(self):
-        return self.anchors_y
-
-    def get_boundary_points(self) -> list[Vect3]:
-        """Gets anchors along the bounding curves. Assumes the region is non-self-intersecting"""
-        result = []
-        for curve in self[0]:
-            result.extend(curve.anchors)
-        return result
-
-    def get_phase_bounds(self) -> tuple[float, float]:
-        """Gets theta_min < theta_max so that all points in the grid have phase lying within
-        these two angles. Assumes the grid is simply-connected and doesn't encircle 0."""
-        bdy_pts = self.get_boundary_points()
-        num_pts = len(bdy_pts)
-
-        # Get the phases, sorted
-        as_complex = [vect3_to_cx(p) for p in bdy_pts]
-        phases = list(map(cmath.phase, [vect3_to_cx(p) for p in bdy_pts]))
-        phases = sorted(phases)
-
-        # Find the largest difference -- this is the jump from theta_max to theta_min
-        diffs = [(phases[(i + 1) % num_pts] - phases[i]) % TAU for i in range(num_pts)]
-        ind = np.argmax(diffs)
-        theta_max = phases[ind]
-        theta_min = phases[(ind + 1) % num_pts]
-
-        # Shift so that -pi < theta_min < pi and theta_min < theta_max
-        if theta_max - theta_min < 0:
-            theta_max += TAU
-        if theta_min >= PI:
-            theta_min -= TAU
-            theta_max -= TAU
-
-        return theta_min, theta_max
-
-    def get_sqrt_fn(self) -> Callable[[complex], complex]:
-        theta_min, theta_max = self.get_phase_bounds()
-        phi = (theta_min + theta_max) / 2
-        return lambda z: cmath.sqrt(z * cmath.exp(complex(0, -phi))) * cmath.exp(
-            complex(0, phi / 2)
-        )
-
     def transform(self, fn: Callable[[Vect3], Vect3]) -> CurveGrid:
         """Transforms the anchors according to the given function, and uses the images to draw a new curve.
         Assumes the function isn't vectorized."""
@@ -530,13 +459,6 @@ class CurveGrid(VGroup):
             axis=0,
         )
         return CurveGrid.make_from_anchors(mapped_anchors_x, mapped_anchors_y)
-
-    def transform_vectorized(self, fn: Callable[[FloatArray], FloatArray]) -> CurveGrid:
-        """Transforms the anchors according to the given function, and uses the images to draw a new curve.
-        Assumes the function is vectorized."""
-        return CurveGrid.make_from_anchors(
-            fn(self.get_anchors_x()), fn(self.get_anchors_y())
-        )
 
 
 def wp(z: complex | np.ndarray, tau: complex, n_pts: int = 10) -> np.ndarray:
@@ -596,8 +518,65 @@ def cx_to_vect3(z: complex):
 
 class RiemannMapping(Scene):
     """Some animations related to the Riemann mapping theorem."""
+    # Helper functions
+    def map_domain_to_pdisk(self, bdy_curves: list[Curve], num_iterations: int = 0):
+        """
+        Given a curve or collection of curves bounding a region, does the following:
+            (1) Computes a grid for the region
+            (2) Maps conformally to the disk -- i.e. computes the image
+            (3) Runs the algorithm in Stein-Shakarchi
+        """
+        domain_grid = CurveGridGeneric.make_from_boundary(bdy_curves, 15, 15, 50, 50)
 
-    def do_fn(
+        # Translates and scales so that it's within a bounding square centered at 0 with sidelengths sqrt(2)
+        xmin, xmax, ymin, ymax = domain_grid.get_bbox()
+        xavg = (xmin + xmax)/2
+        yavg = (ymin + ymax) / 2
+        marked_point = np.array([xavg, yavg, 0.])
+
+
+        scale_x = math.sqrt(2) / (xmax - xmin)
+        scale_y = math.sqrt(2) / (ymax - ymin)
+        tgrid = domain_grid.transform(lambda v: min(scale_x, scale_y) * np.array([v[0] - xavg, v[1] - yavg, 0.]))
+
+        return domain_grid, tgrid
+
+    def compute_riemann_expansion(self, grid: CurveGridGeneric) -> CurveGridGeneric:
+        """Does the raw computation of the Riemann expansion"""
+        # Get the boundary point which is furthest from the origin
+        best_p = min(
+            [p for p in grid.get_boundary_points() if np.linalg.norm(p) < 1.0],
+            key=np.linalg.norm,
+            default=None,
+        )
+
+        # Scale it slightly out towards norm 1 partway
+        a = vect3_to_cx(best_p) / math.pow(np.linalg.norm(best_p), 0.2)
+
+        # Do mapping:
+        # - First calculate alpha value
+        # - Then compute required correctional rotations
+        # - Then compute the composite effect of the mappings
+        tgrid = grid.transform(lambda v: cx_to_vect3(pdisk_aut(a, vect3_to_cx(v))))
+        sqrt_fn = tgrid.get_sqrt_fn()
+        pa = cmath.phase(a)
+        sa = sqrt_fn(a)
+
+
+        # If a has negative phase, but the middle of the phase bounds is positive
+        # (and they're near each other, e.g. on opposide sides of +pi / -pi)
+        # then an additional correctional rotation by pi will be needed
+        cx_rot = cmath.exp(complex(0, pa) / 2)
+        theta_min, theta_max = tgrid.get_phase_bounds()
+        phi = (theta_min + theta_max) / 2
+        if abs(phi - pa) > PI:
+            cx_rot *= -1
+
+        tgrid = grid.transform(lambda v: cx_to_vect3(pdisk_aut(sa, sqrt_fn(pdisk_aut(a, vect3_to_cx(v)))) * cx_rot))
+
+        return tgrid
+
+    def anim_fn(
         self,
         grid: CurveGrid,
         fn: Callable[[complex], complex],
@@ -613,21 +592,21 @@ class RiemannMapping(Scene):
         self.add(grid)
         return grid
 
-    def do_pdisk_aut(self, grid: CurveGrid, a: complex, **anim_kwargs) -> CurveGrid:
+    def anim_pdisk_aut(self, grid: CurveGrid, a: complex, **anim_kwargs) -> CurveGrid:
         """Deforms the grid to its image under the automorphism represented by the complex number a."""
-        return self.do_fn(grid, lambda z: pdisk_aut(a, z), **anim_kwargs)
+        return self.anim_fn(grid, lambda z: pdisk_aut(a, z), **anim_kwargs)
 
-    def do_sqrt(self, grid: CurveGrid, **anim_kwargs) -> CurveGrid:
+    def anim_sqrt(self, grid: CurveGrid, **anim_kwargs) -> CurveGrid:
         """Deforms the grid to its image under the square root function.
 
         WARNING: Assumes that the grid doesn't cross the negative real line. This isn't checked."""
-        return self.do_fn(grid, cmath.sqrt, **anim_kwargs)
+        return self.anim_fn(grid, cmath.sqrt, **anim_kwargs)
 
-    def do_riemann_mapping_expansion(
+    def anim_riemann_mapping_expansion(
         self,
         grid: CurveGrid,
         a: complex,
-        do_steps: bool = True,
+        anim_steps: bool = True,
         show_dots: bool = True,
         run_time: float = 3.0,
         wait_time_between_steps=0.5,
@@ -680,9 +659,9 @@ class RiemannMapping(Scene):
             )
 
         # Do animation
-        if show_dots & do_steps:
+        if show_dots & anim_steps:
             self.play(FadeIn(zero_dot), FadeIn(a_dot), run_time=run_time / 10)
-            grid = self.do_pdisk_aut(
+            grid = self.anim_pdisk_aut(
                 grid,
                 a,
                 run_time=run_time / 4,
@@ -692,7 +671,7 @@ class RiemannMapping(Scene):
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
             self.play(FadeIn(sa_dot), run_time=run_time / 10)
-            grid = self.do_fn(
+            grid = self.anim_fn(
                 grid,
                 sqrt_fn,
                 run_time=run_time / 4,
@@ -701,7 +680,7 @@ class RiemannMapping(Scene):
             )
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-            grid = self.do_pdisk_aut(
+            grid = self.anim_pdisk_aut(
                 grid,
                 sa,
                 run_time=run_time / 4,
@@ -712,7 +691,7 @@ class RiemannMapping(Scene):
             )
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-            grid = self.do_fn(
+            grid = self.anim_fn(
                 grid,
                 lambda z: z * cx_rot,
                 run_time=run_time / 4,
@@ -725,27 +704,27 @@ class RiemannMapping(Scene):
             )
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-        elif (show_dots != True) & do_steps:
-            grid = self.do_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
+        elif (show_dots != True) & anim_steps:
+            grid = self.anim_pdisk_aut(grid, a, run_time=run_time / 4, **anim_kwargs)
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-            grid = self.do_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
+            grid = self.anim_fn(grid, sqrt_fn, run_time=run_time / 4, **anim_kwargs)
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-            grid = self.do_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
+            grid = self.anim_pdisk_aut(grid, sa, run_time=run_time / 4, **anim_kwargs)
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
 
-            grid = self.do_fn(
+            grid = self.anim_fn(
                 grid, lambda z: z * cx_rot, run_time=run_time / 4, **anim_kwargs
             )
             if wait_time_between_steps != 0:
                 self.wait(duration=wait_time_between_steps)
-        elif show_dots & (do_steps != True):
+        elif show_dots & (anim_steps != True):
             self.play(
                 FadeIn(zero_dot), FadeIn(a_dot), FadeIn(sa_dot), run_time=run_time / 3
             )
-            grid = self.do_fn(
+            grid = self.anim_fn(
                 grid,
                 lambda z: pdisk_aut(sa, sqrt_fn(pdisk_aut(a, z))) * cx_rot,
                 run_time=run_time,
@@ -757,7 +736,7 @@ class RiemannMapping(Scene):
                 FadeIn(zero_dot), FadeOut(a_dot), FadeOut(sa_dot), run_time=run_time / 3
             )
         else:
-            grid = self.do_fn(
+            grid = self.anim_fn(
                 grid,
                 lambda z: pdisk_aut(sa, sqrt_fn(pdisk_aut(a, z))) * cx_rot,
                 run_time=run_time,
@@ -829,10 +808,10 @@ class RiemannMapping(Scene):
 
         ## Automorphism associated to a point not inside the domain.
         a = complex(0, 0.8)
-        grid = self.do_riemann_mapping_expansion(
+        grid = self.anim_riemann_mapping_expansion(
             grid,
             a,
-            do_steps=True,
+            anim_steps=True,
             show_dots=True,
             run_time=3.0,
             wait_time_between_steps=1.0,
@@ -855,11 +834,10 @@ class RiemannMapping(Scene):
             a = vect3_to_cx(best_p) / math.pow(np.linalg.norm(best_p), 0.2)
 
             # Do mapping
-            # TODO If a is in the lower-right
-            grid = self.do_riemann_mapping_expansion(
+            grid = self.anim_riemann_mapping_expansion(
                 grid,
                 a,
-                do_steps=True,
+                anim_steps=True,
                 show_dots=True,
                 run_time=3.0,
                 wait_time_between_steps=0.5,
@@ -882,10 +860,10 @@ class RiemannMapping(Scene):
 
             # Do mapping
             # TODO If a is in the lower-right
-            grid = self.do_riemann_mapping_expansion(
+            grid = self.anim_riemann_mapping_expansion(
                 grid,
                 a,
-                do_steps=False,
+                anim_steps=False,
                 show_dots=(i < 20),
                 run_time=0.05 * 50 / (50 + i),
                 rate_func=linear,

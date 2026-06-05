@@ -97,14 +97,6 @@ class Fourier:
         return cos_term + sin_term
 
 
-def do_fourier_interp():
-    """Given a sequence of 2d numbers, fits it as a linear combination of the functions
-    cos(0t), cos(2pi*t), cos(4pi*t), ..., cos(2(d-1)pi*t), cos(2dpi*t),
-    sin(2pi*t), sin(4pi*t), ..., sin(2(d-1)pi*t)
-    where the function values at t=0, 1/2d, 2/2d, ..., (2d-1)/2d are the number values given."""
-    pass
-
-
 class ClosedCurve(VMobject):
     """A closed curve defined by a function (x(t), y(t)): [0, 1] -> R^2,
     represented by 2d coefficients, i.e.

@@ -117,7 +117,10 @@ function computeClosedHandles(pts: Pt[]): [Pt, Pt][] {
 }
 
 function makeBezierCurve(pts: Pt[], closed: boolean): BezierCurve {
-  return { pts, cp: closed ? computeClosedHandles(pts) : computeOpenHandles(pts) };
+  return {
+    pts,
+    cp: closed ? computeClosedHandles(pts) : computeOpenHandles(pts),
+  };
 }
 
 // ─── Fourier boundary curve ───────────────────────────────────────────────────
@@ -238,10 +241,16 @@ function lerpGrid(g1: Grid, g2: Grid, t: number): Grid {
   ];
   return {
     x: g1.x.map((c, i) =>
-      makeBezierCurve(c.pts.map((p, j) => lerpPt(p, g2.x[i]!.pts[j]!)), false),
+      makeBezierCurve(
+        c.pts.map((p, j) => lerpPt(p, g2.x[i]!.pts[j]!)),
+        false,
+      ),
     ),
     y: g1.y.map((c, i) =>
-      makeBezierCurve(c.pts.map((p, j) => lerpPt(p, g2.y[i]!.pts[j]!)), false),
+      makeBezierCurve(
+        c.pts.map((p, j) => lerpPt(p, g2.y[i]!.pts[j]!)),
+        false,
+      ),
     ),
     boundary: makeBezierCurve(
       g1.boundary.pts.map((p, i) => lerpPt(p, g2.boundary.pts[i]!)),
@@ -361,7 +370,14 @@ function drawBezierCurve(
   ctx.moveTo(tx(pts[0]!), ty(pts[0]!));
   for (let i = 0; i < cp.length; i++) {
     const [c1, c2] = cp[i]!;
-    ctx.bezierCurveTo(tx(c1), ty(c1), tx(c2), ty(c2), tx(pts[i + 1]!), ty(pts[i + 1]!));
+    ctx.bezierCurveTo(
+      tx(c1),
+      ty(c1),
+      tx(c2),
+      ty(c2),
+      tx(pts[i + 1]!),
+      ty(pts[i + 1]!),
+    );
   }
   ctx.stroke();
 }
@@ -465,6 +481,7 @@ function buildUI(container: HTMLElement): {
   canvas: HTMLCanvasElement;
   slider: HTMLInputElement;
   label: HTMLElement;
+  recomputeBtn: HTMLButtonElement;
 } {
   container.style.cssText =
     "display:flex;flex-direction:column;align-items:center;gap:16px;" +
@@ -487,72 +504,217 @@ function buildUI(container: HTMLElement): {
   slider.disabled = true;
   slider.style.cssText = `width:min(${CANVAS_W}px,90vw);cursor:pointer;accent-color:#64a0ff;`;
 
-  container.append(canvas, label, slider);
-  return { canvas, slider, label };
+  const recomputeBtn = document.createElement("button");
+  recomputeBtn.textContent = "Recompute mapping";
+  recomputeBtn.style.cssText =
+    "display:none;padding:8px 20px;background:#1a2a3c;color:#64a0ff;" +
+    "border:1px solid rgba(100,160,255,0.3);border-radius:4px;" +
+    "font-family:monospace;font-size:13px;cursor:pointer;";
+  recomputeBtn.addEventListener("mouseenter", () => {
+    recomputeBtn.style.background = "#2a3a5c";
+  });
+  recomputeBtn.addEventListener("mouseleave", () => {
+    recomputeBtn.style.background = "#1a2a3c";
+  });
+
+  container.append(canvas, label, slider, recomputeBtn);
+  return { canvas, slider, label, recomputeBtn };
 }
 
 function initRiemannApp(containerId: string): void {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const { canvas, slider, label } = buildUI(container);
+  const { canvas, slider, label, recomputeBtn } = buildUI(container);
   const ctx = canvas.getContext("2d")!;
   if (!ctx) return;
 
-  const boundary = makeFourierBoundary(BOUNDARY_PTS);
-  const initial = makeGridInsideCurve(boundary, NUM_X, NUM_Y, NUM_ANCHORS);
+  let boundary: Pt[] = makeFourierBoundary(BOUNDARY_PTS);
+  let initial: Grid = makeGridInsideCurve(boundary, NUM_X, NUM_Y, NUM_ANCHORS);
 
-  // Intermediate states stored. Starts with just the initial shape
-  const states: Grid[] = [initial];
-  // render(ctx, initial, initial);
   render_intermediate(ctx, initial, initial, 0);
 
-  // Track changing state
   let step = 0;
   let state: Grid = initial;
-  let final: Grid;
+  let final: Grid = initial;
+  let computeId = 0;
 
-  // TODO Do this rendering for several possible curves
-  // TODO Make it possible to drag points on the curve to modify it, and accordingly recompute the final mapping.
-  // TODO Instead of storing all the intermediate steps, just compute the final one
-  function computeNext(): void {
-    // Loop which
-    if (step >= NUM_ITERS) {
-      console.log("Computation done");
-      label.textContent = "Drag slider to map domain onto disk";
-      // label.textContent =
-      //   "Iteration: 0  —  drag slider to map domain onto disk";
-      slider.max = String(NUM_ITERS);
-      slider.disabled = false;
-      // TODO Instead of rendering the n-th state (out of N) when the slider is pulled along,
-      // render (n/N)-of-the-way deformation between the initial state and final state.
-      slider.addEventListener("input", () => {
-        const n = parseInt(slider.value, 10);
-        // label.textContent = `Iteration: ${n} / ${NUM_ITERS}`;
-        // render(ctx, initial, states[n]!);
-        render_intermediate(ctx, initial, final, n / (NUM_ITERS - 1));
-      });
-      return;
+  function startCompute(): void {
+    const id = ++computeId;
+    function tick(): void {
+      if (computeId !== id) return;
+      if (step >= NUM_ITERS) {
+        label.textContent = "Drag slider to map domain onto disk";
+        slider.max = String(NUM_ITERS);
+        slider.disabled = false;
+        return;
+      }
+      state = riemannStep(state);
+      if (step === NUM_ITERS - 1) final = state;
+      step++;
+      slider.max = String(step);
+      label.textContent = `Computing… ${Math.round((100 * step) / NUM_ITERS)}%`;
+      setTimeout(tick, 0);
     }
-
-    // Loop when we're still computing iterations
-
-    // Store the current version
-    // states.push(riemannStep(states[step]!));
-
-    // Store just the final version
-    state = riemannStep(state);
-    if (step == NUM_ITERS - 1) {
-      final = state;
-    }
-    step++;
-    slider.max = String(step);
-    // render(ctx, initial, states[step]!);
-    label.textContent = `Computing… ${Math.round((100 * step) / NUM_ITERS)}%`;
-    setTimeout(computeNext, 0);
+    setTimeout(tick, 0);
   }
 
-  setTimeout(computeNext, 0);
+  slider.addEventListener("input", () => {
+    const n = parseInt(slider.value, 10);
+    render_intermediate(ctx, initial, final, n / (NUM_ITERS - 1));
+  });
+
+  // ── Drag-to-deform boundary ───────────────────────────────────────────────
+
+  let displayBoundary: Pt[] = boundary.map((p) => [p[0], p[1]] as Pt);
+  let draggingIdx: number | null = null;
+  let dragSnapshot: Pt[] | null = null;
+  let dragOrigin: Pt | null = null;
+
+  const DRAG_HIT_PX = 16;
+  const DRAG_SIGMA = 15; // Gaussian influence width in index-space
+
+  function canvasToMath(clientX: number, clientY: number): Pt | null {
+    const r = canvas.getBoundingClientRect();
+    const cx = (clientX - r.left) * (canvas.width / r.width);
+    const cy = (clientY - r.top) * (canvas.height / r.height);
+    if (cx > PANEL_W) return null;
+    return [(cx - LCX) / SCALE, (LCY - cy) / SCALE];
+  }
+
+  function nearestIdx(pt: Pt): { idx: number; dist: number } {
+    let idx = 0,
+      dist = Infinity;
+    for (let i = 0; i < displayBoundary.length; i++) {
+      const p = displayBoundary[i]!;
+      const d = Math.hypot(p[0] - pt[0], p[1] - pt[1]);
+      if (d < dist) {
+        dist = d;
+        idx = i;
+      }
+    }
+    return { idx, dist };
+  }
+
+  function repaint(): void {
+    const g: Grid = {
+      x: [],
+      y: [],
+      boundary: makeBezierCurve(displayBoundary, true),
+    };
+    render_intermediate(ctx, g, g, 0);
+  }
+
+  canvas.addEventListener("mousedown", (e) => {
+    if (parseInt(slider.value, 10) !== 0) return;
+    const pt = canvasToMath(e.clientX, e.clientY);
+    if (!pt) return;
+    const { idx, dist } = nearestIdx(pt);
+    if (dist * SCALE < DRAG_HIT_PX) {
+      draggingIdx = idx;
+      dragSnapshot = displayBoundary.map((p) => [p[0], p[1]] as Pt);
+      dragOrigin = [dragSnapshot[idx]![0], dragSnapshot[idx]![1]];
+      canvas.style.cursor = "grabbing";
+      e.preventDefault();
+    }
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    if (parseInt(slider.value, 10) !== 0) return;
+    if (draggingIdx !== null && dragSnapshot && dragOrigin) {
+      const pt = canvasToMath(e.clientX, e.clientY);
+      if (!pt) return;
+      const dx = pt[0] - dragOrigin[0];
+      const dy = pt[1] - dragOrigin[1];
+      const n = dragSnapshot.length;
+      displayBoundary = dragSnapshot.map((p, i) => {
+        const raw = Math.abs(i - draggingIdx!);
+        const w = Math.exp(-0.5 * (Math.min(raw, n - raw) / DRAG_SIGMA) ** 2);
+        return [p[0] + dx * w, p[1] + dy * w] as Pt;
+      });
+      repaint();
+      recomputeBtn.style.display = "";
+    } else {
+      const pt = canvasToMath(e.clientX, e.clientY);
+      canvas.style.cursor =
+        pt && nearestIdx(pt).dist * SCALE < DRAG_HIT_PX ? "grab" : "default";
+    }
+  });
+
+  canvas.addEventListener("mouseup", () => {
+    if (draggingIdx !== null) {
+      draggingIdx = null;
+      canvas.style.cursor = "default";
+    }
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    draggingIdx = null;
+    canvas.style.cursor = "default";
+  });
+
+  canvas.addEventListener(
+    "touchstart",
+    (e) => {
+      if (parseInt(slider.value, 10) !== 0) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const pt = canvasToMath(t.clientX, t.clientY);
+      if (!pt) return;
+      const { idx, dist } = nearestIdx(pt);
+      if (dist * SCALE < DRAG_HIT_PX * 2) {
+        draggingIdx = idx;
+        dragSnapshot = displayBoundary.map((p) => [p[0], p[1]] as Pt);
+        dragOrigin = [dragSnapshot[idx]![0], dragSnapshot[idx]![1]];
+        e.preventDefault();
+      }
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener(
+    "touchmove",
+    (e) => {
+      if (draggingIdx === null || !dragSnapshot || !dragOrigin) return;
+      const t = e.touches[0];
+      if (!t) return;
+      const pt = canvasToMath(t.clientX, t.clientY);
+      if (!pt) return;
+      const dx = pt[0] - dragOrigin[0];
+      const dy = pt[1] - dragOrigin[1];
+      const n = dragSnapshot.length;
+      displayBoundary = dragSnapshot.map((p, i) => {
+        const raw = Math.abs(i - draggingIdx!);
+        const w = Math.exp(-0.5 * (Math.min(raw, n - raw) / DRAG_SIGMA) ** 2);
+        return [p[0] + dx * w, p[1] + dy * w] as Pt;
+      });
+      repaint();
+      recomputeBtn.style.display = "";
+      e.preventDefault();
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener("touchend", () => {
+    draggingIdx = null;
+  });
+
+  recomputeBtn.addEventListener("click", () => {
+    boundary = displayBoundary.map((p) => [p[0], p[1]] as Pt);
+    initial = makeGridInsideCurve(boundary, NUM_X, NUM_Y, NUM_ANCHORS);
+    state = initial;
+    final = initial;
+    step = 0;
+    slider.value = "0";
+    slider.max = "0";
+    slider.disabled = true;
+    recomputeBtn.style.display = "none";
+    label.textContent = "Computing…";
+    render_intermediate(ctx, initial, initial, 0);
+    startCompute();
+  });
+
+  startCompute();
 }
 
 initRiemannApp("riemann-app");

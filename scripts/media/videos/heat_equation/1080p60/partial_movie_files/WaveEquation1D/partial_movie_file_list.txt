@@ -1,0 +1,2 @@
+# This file is used internally by FFMPEG.
+file 'file:/Users/ksankar/manimations/scripts/media/videos/heat_equation/1080p60/partial_movie_files/WaveEquation1D/3529212410_3596941643_418611298.mp4'

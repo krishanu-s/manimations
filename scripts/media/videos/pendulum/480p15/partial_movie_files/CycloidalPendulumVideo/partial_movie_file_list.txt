@@ -1,0 +1,8 @@
+# This file is used internally by FFMPEG.
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/1185818338_1506640873_2876834905.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_435055086_1007209556.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_3416566803_638460079.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_20985047_1962986327.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_2700071799_1579022186.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_2130586775_1509483304.mp4'
+file 'file:/Users/ksankar/manimations/scripts/media/videos/pendulum/480p15/partial_movie_files/CycloidalPendulumVideo/624642324_2950721455_3297884758.mp4'
