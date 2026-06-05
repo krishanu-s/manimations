@@ -565,6 +565,9 @@ function initRiemannApp(containerId: string): void {
   });
 
   // ── Drag-to-deform boundary ───────────────────────────────────────────────
+  // TODO There is a bug here. When the boundary is dragged and deformed, the
+  // new boundary on which the Riemann mapping is computed doesn't compute properly.
+  // Investigate this.
 
   let displayBoundary: Pt[] = boundary.map((p) => [p[0], p[1]] as Pt);
   let draggingIdx: number | null = null;
