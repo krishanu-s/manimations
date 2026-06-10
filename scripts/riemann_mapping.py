@@ -193,30 +193,122 @@ class DiskHeatMap(HeatMapMixin, Disk):
     pass
 
 
+# Decompose a function on (0, TAU) into Fourier components.
+def decompose_into_fourier(v0: Callable[[float], float], fourier_deg: int):
+    num_pts = 4 * fourier_deg
+    t_values = np.linspace(0, TAU * (1 - 1 / num_pts), num_pts)
+    v_array = np.array([v0(t) for t in t_values])
+    return np.array(
+        [
+            v_array.dot(np.array([np.exp(complex(0, m * t)) for t in t_values]))
+            / num_pts
+            for m in range(-fourier_deg, fourier_deg + 1)
+        ]
+    )
+
+
+# Given a function v(theta) on the boundary of the disk (i.e. the circle), uses the Poisson kernel to produce
+# a steady-state solution v(r, theta) which is harmonic
+def solve_dirichlet(
+    v0: Callable[[float], float], fourier_deg: int = 10
+) -> Callable[[np.ndarray], np.ndarray]:
+    fourier_coeffs = decompose_into_fourier(v0, fourier_deg)
+    # Rescale the m-th Fourier by r^|m|, and reconstitute. This therefore looks like z^|m| on the unit disk.
+    return lambda polar_coords: sum(
+        [
+            fourier_coeffs[m + fourier_deg]
+            * np.exp(complex(0, 1) * m * polar_coords[:, 1])
+            * np.pow(polar_coords[:, 0], abs(m))
+            for m in range(-fourier_deg, fourier_deg + 1)
+        ]
+    )
+
+
 # Scene showing the evolution of a Fourier-Bessel function on the
-class Foo(Scene):
+class DiskLaplace(Scene):
+    def _init_params(self):
+        # Get zeros of the Bessel functions for the purpose of defining Fourier-Bessel harmonics
+        self.max_m = 20
+        self.max_k = 20
+        self.bessel_zeros = np.stack(
+            [jn_zeros(m, self.max_k) for m in range(self.max_m)], axis=0
+        )
+
+    # Definition of Fourier-Bessel harmonics which are eigenfunctions of the Laplace operator on the disk
+    def phi(self, m, k):
+        # First coordinate is r, second coordinate is theta
+        return lambda polar_coords: jv(
+            np.abs(m), self.bessel_zeros[np.abs(m), k] * polar_coords[:, 0]
+        ) * np.exp(complex(0, 1) * m * polar_coords[:, 1])
+
+    # Decompose a function on the unit disk into Fourier-Bessel components indexed by pairs (m, k).
+    # Outputs an array of coefficients of shape (2 * max_m - 1, max_k)), giving coefficients for
+    # -max_m < m < max_m and 0 <= k < max_k.
+    def decompose_into_fourier_bessel(
+        self,
+        v_array: np.ndarray,  # Shape (num_r * num_t, 2), values at midpoints of panels
+        max_m: int = 10,
+        max_k: int = 10,
+        num_r: int = 40,
+        num_t: int = 40,
+    ):
+        """Decomposes a function on the unit disk into Fourier-Bessel components indexed by pairs (m, k).
+        Outputs an array of coefficients of shape (2 * max_m - 1, max_k)), giving coefficients for
+        -max_m < m < max_m and 0 <= k < max_k."""
+        # TODO Fix this.
+        # Inner product of phi_{m, k} with itself is J_{m+1}(j_mk)^2 / 2.
+        # So we take the dot product with all of the Fourier-Bessel functions, times 1/TAU * 2/J_{m+1}(j_mk)^2
+        # r_values = np.linspace(1 / (2 * num_r), 1 - 1 / (2 * num_r), num_r)
+        r_values = np.linspace(1 / (2 * num_r), 1 - 1 / (2 * num_r), num_r)
+        t_values = np.linspace(TAU / (2 * num_t), TAU * (1 - 1 / (2 * num_t)), num_t)
+        polar_coords = np.array([[r, t] for r in r_values for t in t_values])
+
+        # Include a factor of r in integration, to normalize according to the perimeter of the shell at r
+        weight = np.ones(num_r * num_t)
+        for ir, r in enumerate(r_values):
+            weight[num_t * ir : num_t * (ir + 1)] *= r
+
+        coeffs = np.zeros((2 * max_m - 1, max_k))
+        for m in range(-max_m + 1, max_m):
+            for k in range(max_k):
+                # Calculate integral, divided by TAU
+                coeff = v_array.dot(weight * self.phi(m, k)(polar_coords)) / (
+                    num_t * num_r
+                )
+
+                # Scale factor
+                coeff *= 2 / math.pow(
+                    jv(abs(m + 1), self.bessel_zeros[np.abs(m), k]), 2
+                )
+
+                # Add to coefficients matrix
+                coeffs[m + max_m - 1, k] = coeff
+
+        return coeffs
+
+    def fb_coeffs_to_fn(self, coeffs):
+        """Converts an array of Fourier-Bessel coefficients into a function on the disk."""
+        max_m = (coeffs.shape[0] + 1) // 2
+        max_k = coeffs.shape[1]
+        return lambda polar_coords: sum(
+            coeffs[m + max_m - 1, k] * self.phi(m, k)(polar_coords)
+            for m in range(-max_m + 1, max_m)
+            for k in range(max_k)
+        )
+
     def construct(self):
+        self._init_params()
         frame = self.frame
         frame.reorient(120, 55, 0)
-
-        # Get zeros of the Bessel functions for the purpose of defining Fourier-Bessel harmonics
-        max_m = 10
-        max_k = 10
-        bessel_zeros = np.stack([jn_zeros(m, max_k) for m in range(max_m)], axis=0)
-
-        # Definition of Fourier-Bessel harmonics which are eigenfunctions of the Laplace operator on the disk
-        def phi(m, k):
-            j_mk = bessel_zeros[np.abs(m), k]  # Bessel zero
-            # First coordinate is r, second coordinate is theta
-            return lambda polar_coords: jv(np.abs(m), j_mk * polar_coords[:, 0]) * np.exp(
-                complex(0, 1) * m * polar_coords[:, 1]
-            )
+        max_m = self.max_m
+        max_k = self.max_k
+        bessel_zeros = self.bessel_zeros
 
         # Define a linear combination of said harmonics.
         def fn(
-            polar_coords: FloatArray, # Array of [r, theta] pairs
-            coeffs: FloatArray, # Fourier-Bessel coefficients
-            t: float # Time
+            polar_coords: FloatArray,  # Array of [r, theta] pairs
+            coeffs: FloatArray,  # Fourier-Bessel coefficients
+            t: float,  # Time
         ):
             result = np.zeros(polar_coords.shape[:-1], dtype=np.complex128)
             for m in range(-max_m + 1, max_m):
@@ -224,79 +316,114 @@ class Foo(Scene):
                     c = coeffs[m + max_m - 1, k]
                     if c != 0:
                         j_mk = bessel_zeros[np.abs(m), k]  # Bessel zero
-                        l_mk = -j_mk ** 2 # Eigenvalue
-                        result += np.exp(l_mk * t) * jv(np.abs(m), j_mk * polar_coords[:, 0]) * np.exp(
-                            complex(0, 1) * m * polar_coords[:, 1]
-                        )
+                        l_mk = -(j_mk**2)  # Eigenvalue
+                        result += np.exp(l_mk * t) * c * self.phi(m, k)(polar_coords)
             return result
 
-
-        coeffs = np.zeros((2 * max_m - 1, max_k))
-
-        # Given a function v(theta) on the boundary of the disk (i.e. the circle), uses the Poisson kernel to produce
-        # a steady-state solution v(r, theta) which is harmonic
-        def solve_dirichlet(v0: Callable[[float], float], fourier_deg: int = 10):
-            # Decompose v(-) into a Fourier basis
-            num_pts = 2 * fourier_deg + 1
-            t_values = np.linspace(0, TAU * (1 - 1/num_pts), num_pts)
-            v_array = np.array([v0(t) for t in t_values])
-            fourier_coeffs = []
-            for m in range(-fourier_deg, fourier_deg + 1):
-                fourier_coeffs.append(v_array.dot(np.array([np.exp(complex(0, m*t)) for t in t_values])) / num_pts)
-
-            # Rescale the m-th Fourier by r^|m|, and reconstitute
-            return lambda polar_coords: sum([
-                fourier_coeffs[m + fourier_deg] * np.exp(complex(0, m) * polar_coords[:, 1]) * np.pow(polar_coords[:, 0], abs(m))
-                for m in range(-fourier_deg, fourier_deg + 1)
-            ])
-
-        # TODO Inner product of two functions of (r, theta).
-
-        # Decomposes a function into the Fourier-Bessel basis, outputting coefficients.
-        def decompose_into_fourier_bessel(v, max_m: int = 10, max_k: int = 10, num_r: int = 20, num_t: int = 20):
-            # Inner product of phi_{m, k} with itself is J_{m+1}(j_mk)^2 / 2.
-            # So we take the dot product with all of the Fourier-Bessel functions, times 1/TAU * 2/J_{m+1}(j_mk)^2
-            r_values = np.linspace(0, 1, num_r)
-            t_values = np.linspace(0, TAU, num_t)
-            polar_coords = np.array([[r, t] for r in r_values for t in t_values])
-            v_array = v(polar_coords)
-            coeffs = np.zeros((2 * max_m - 1, max_k))
-            for m in range(-max_m + 1, max_m):
-                for k in range(max_k):
-                    fb_array = phi(m, k)(polar_coords)
-
-                    # Include a factor of r in integration
-                    for ir, r in enumerate(r_values):
-                        fb_array[num_t * ir:num_t * (ir+1)] *= r
-
-                    # Calculate integral, divided by TAU
-                    coeff = v_array.dot(fb_array) /  (num_t  * num_r)
-
-                    # Scale factor
-                    j_mk = bessel_zeros[np.abs(m), k]
-                    coeff *= 2 / math.pow(jv(abs(m + 1), j_mk), 2)
-
-                    # Add to coefficients matrix
-                    coeffs[m + max_m - 1, k] = coeff
-
-            return coeffs
-
-
-
         # Plot a heatmap of the function onto the disk
-        disk = DiskHeatMap()
+        num_r = 11
+        num_theta = 21
+        disk = DiskHeatMap(resolution=(num_r, num_theta))
         disk.init_heatmap(HeatMapType.REAL)
-        self.add(disk)
-        t = ValueTracker()
+        r_theta_pts: np.ndarray = (
+            disk.heatmap.points
+        )  # TODO Take centers of regions instead
 
-        # Given an initial condition, find the steady state
-        v0 = lambda t: np.cos(2*t)
+        # Set a timer object
+        time = ValueTracker()
+        timer = (
+            DecimalNumber()
+            .next_to(disk, UL, 2.0)
+            .fix_in_frame()
+            .add_updater(lambda mobj: mobj.set_value(100 * time.get_value()))
+        )
+
+        self.add(disk, timer)
+
+        # Given a time-independent boundary condition v0 ...
+        # v0 = lambda t: np.cos(2 * t)
+        v0 = lambda t: np.ones_like(t)
+
+        # ... find the steady state ev ...
         ev = solve_dirichlet(v0)
+        ev_array = ev(r_theta_pts)
 
-        # Find the decomposition of ev into the Fourier-Bessel basis.
-        ev_coeffs = decompose_into_fourier_bessel(ev)
+        # ... then find Fourier-Bessel decomposition of the residual part rv = v0 - ev,
+        # since those components will decay exponentially with time ...
+        nr = num_r - 1
+        nt = num_theta - 1
+        r_values = np.linspace(1 / (2 * nr), 1 - 1 / (2 * nr), nr)
+        t_values = np.linspace(TAU / (2 * nt), TAU * (1 - 1 / (2 * nt)), nt)
+        polar_coords = np.array([[r, t] for r in r_values for t in t_values])
+        rv_array = -ev(polar_coords)
+        rv_coeffs_alt = self.decompose_into_fourier_bessel(
+            rv_array, max_m, max_k, nr, nt
+        )
+        # Q: Why, when reconstituted, does this not return the original function rv_array?
+        # I suspect the answer is that it gives the array which is *nearest* to rv_array.
+        # In other words, the Fourier-Bessel functions are not enough to reconstitute the array itself,
+        # because they don't span.
 
-        # Set an updater for the heatmap which evolves through time
+        # rv_array = -ev_array.reshape((num_r, num_theta))
+        # rv_array[-1] = 0
+        # rv_array = (
+        #     rv_array[:-1, :-1]
+        #     + rv_array[1:, :-1]
+        #     + rv_array[:-1, 1:]
+        #     + rv_array[1:, 1:]
+        # ) / 4
+        # rv_coeffs = self.decompose_into_fourier_bessel(
+        #     rv_array.reshape(nr * nt), max_m, max_k, nr, nt
+        # )
+
+        # Pre-compute Fourier-Bessel function values for each (m, k)
+        fb_values = np.stack(
+            [
+                np.stack(
+                    [self.phi(m, k)(r_theta_pts) for k in range(self.max_k)], axis=0
+                )
+                for m in range(-max_m + 1, max_m)
+            ],
+            axis=0,
+        )
+        fb_values_alt = np.stack(
+            [
+                np.stack(
+                    [self.phi(m, k)(polar_coords) for k in range(self.max_k)], axis=0
+                )
+                for m in range(-max_m + 1, max_m)
+            ],
+            axis=0,
+        )
+
+        # Finally, the initial value rv + ev evolves over time as evolve(rv, t) + ev.
+        # Coefficient c_(m, k) multiplies by exp(-(j_mk**2) * t).
+        l_values = np.zeros((2 * max_m - 1, max_k))
+        j_values = np.zeros((2 * max_m - 1, max_k))
+        for m in range(-max_m + 1, max_m):
+            for k in range(max_k):
+                j_mk = bessel_zeros[np.abs(m), k]
+                l_mk = -(j_mk**2)
+                j_values[m + max_m - 1, k] = j_mk
+                l_values[m + max_m - 1, k] = l_mk
+
+        disk.add_updater(
+            lambda mobj: mobj.set_vals(
+                ev_array
+                + np.sum(
+                    np.sum(
+                        (rv_coeffs_alt * np.exp(l_values * time.get_value()))[
+                            :, :, np.newaxis
+                        ]
+                        * fb_values,
+                        axis=0,
+                    ),
+                    axis=0,
+                )
+            )
+        )
+
+        # vals_at_time_t =
 
         # Do time evolution
 
