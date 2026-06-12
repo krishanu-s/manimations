@@ -255,7 +255,7 @@ class DiskLaplace(Scene):
         """Decomposes a function on the unit disk into Fourier-Bessel components indexed by pairs (m, k).
         Outputs an array of coefficients of shape (2 * max_m - 1, max_k)), giving coefficients for
         -max_m < m < max_m and 0 <= k < max_k."""
-        # TODO Fix this.
+        # TODO Fix this. Use evenly-spaced
         # Inner product of phi_{m, k} with itself is J_{m+1}(j_mk)^2 / 2.
         # So we take the dot product with all of the Fourier-Bessel functions, times 1/TAU * 2/J_{m+1}(j_mk)^2
         # r_values = np.linspace(1 / (2 * num_r), 1 - 1 / (2 * num_r), num_r)
@@ -321,8 +321,8 @@ class DiskLaplace(Scene):
             return result
 
         # Plot a heatmap of the function onto the disk
-        num_r = 11
-        num_theta = 21
+        num_r = 51
+        num_theta = 101
         disk = DiskHeatMap(resolution=(num_r, num_theta))
         disk.init_heatmap(HeatMapType.REAL)
         r_theta_pts: np.ndarray = (
@@ -350,7 +350,7 @@ class DiskLaplace(Scene):
 
         # ... then find Fourier-Bessel decomposition of the residual part rv = v0 - ev,
         # since those components will decay exponentially with time ...
-        nr = num_r - 1
+        nr = 200
         nt = num_theta - 1
         r_values = np.linspace(1 / (2 * nr), 1 - 1 / (2 * nr), nr)
         t_values = np.linspace(TAU / (2 * nt), TAU * (1 - 1 / (2 * nt)), nt)
@@ -362,7 +362,10 @@ class DiskLaplace(Scene):
         # Q: Why, when reconstituted, does this not return the original function rv_array?
         # I suspect the answer is that it gives the array which is *nearest* to rv_array.
         # In other words, the Fourier-Bessel functions are not enough to reconstitute the array itself,
-        # because they don't span.
+        # because they don't span?
+        # TODO: approximating the integral using evenly-spaced r values is bad. We should be using evenly-spaced
+        # values of r^2, meaning that we take more densely-spaced samples at larger values of r. This will return
+        # the *correct* coefficients, which are then used to
 
         # rv_array = -ev_array.reshape((num_r, num_theta))
         # rv_array[-1] = 0
