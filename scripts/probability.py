@@ -11,16 +11,43 @@ from manimlib import *
 
 
 def gaussian_pdf(mean: float, std: float, t: float):
+    """The probability density function for a Gaussian distribution with a given mean and standard deviation."""
     return math.exp(-((t - mean) ** 2) / (2 * std**2)) / (std * math.sqrt(TAU))
 
 
-class PDFScene(Scene):
-    """Base class for scenes involving the visualization of a probability density function"""
+class PDFDiscreteScene(Scene):
+    """
+    Base class for scenes involving the visualization of a probability distribution on a finite set, using a bar graph.
+    """
+
+    # TODO
+    pass
+
+
+class PDFPositiveRealsScene(Scene):
+    """
+    Base class for scenes involving the visualization of a probability density function on the positive real numbers.
+    Convolution of density functions is performed using the Laplace transform.
+    """
+
+    # TODO
+    pass
+
+
+class PDFRealsScene(Scene):
+    """
+    Base class for scenes involving the visualization of a probability density function on the real numbers.
+    Convolution of density functions is performed using the Fourier transform.
+    """
 
     def construct(self):
-        # Sample scene, showing that the fourier, and then inverse fourier transform of
-        # a Gaussian produces a Gaussian.
-        self.init_pdf()
+        """
+        A sample scene which demonstrates that
+        - The Fourier transform of a Gaussian is again a Gaussian.
+        - Applying the inverse Fourier transform returns us to the original distribution
+        - You can calculate the convolution of two distributions by directly multiplying the Fourier coefficients.
+        """
+        self.init_params()
         self.add(self.ax, self.w_ax)
         std_1 = 1.0
         std_2 = 0.5
@@ -79,7 +106,7 @@ class PDFScene(Scene):
         # )
         self.embed()
 
-    def init_pdf(self):
+    def init_params(self):
         # Domain over which probability density functions are defined
         # We assume input functions are (mostly) supported on this domain
         # and therefore this is a reasonable interval over which to integrate.
@@ -115,6 +142,12 @@ class PDFScene(Scene):
         self.ax = Axes(
             (self.xmin, self.xmax), (self.ymin, self.ymax), width=10.0, x_axis_config={}
         )
+        self.ax.add(
+            *[
+                Tex("x", font_size=30).next_to(self.ax.x_axis, RIGHT, 0.2),
+                Tex("p(x)", font_size=30).next_to(self.ax.y_axis, UP, 0.2),
+            ]
+        )
 
         # Set up the axes for the Fourier transform
         self.wymin = 0.0
@@ -126,6 +159,39 @@ class PDFScene(Scene):
             x_axis_config={"tick_offset": 10.0, "include_ticks": False},
         ).next_to(self.ax, RIGHT, 2.0)
 
+        self.w_ax.add(
+            *[
+                Tex("w", font_size=30).next_to(self.w_ax.x_axis, RIGHT, 0.2),
+                Tex("\\hat{p}(x)", font_size=30).next_to(self.w_ax.y_axis, UP, 0.2),
+            ]
+        )
+
+    def calculate_entropy(self, fn_vals: np.ndarray) -> float:
+        """Calculates the entropy of a given probability density function based on input values.
+        This is given by the formula -int p(x) * log(p(x)) dx."""
+        return -np.sum(fn_vals * np.log(np.abs(fn_vals))) * self.del_x
+
+    def calculate_fisher_information(self, fn_vals: np.ndarray) -> float:
+        """Calculates the fisher information of a given probability density function based on input values.
+        This is given by the formula int p'(x)^2 / p(x) dx."""
+        abs_vals = np.abs(fn_vals)
+        d_vals = (abs_vals[1:] - abs_vals[:-1]) / self.del_x
+        vals = (abs_vals[1:] + abs_vals[:-1]) / 2
+        return np.sum(np.pow(d_vals, 2) / vals) * self.del_x
+
+    def calculate_mean(self, fn_vals: np.ndarray) -> float:
+        """Calculates the mean of a given probability density function based on input values.
+        This is given by the formula int p(x) * x dx."""
+        return np.sum(fn_vals * self.xspace) * self.del_x
+
+    def calculate_variance(self, fn_vals: np.ndarray) -> float:
+        """Calculates the variance of a given probability density function based on input values.
+        This is given by the formula int p(x) * x^2 dx - (int p(x) * x dx)^2."""
+        return (
+            np.sum(fn_vals * np.pow(self.xspace, 2)) * self.del_x
+            - self.calculate_mean(fn_vals) ** 2
+        )
+
     def fn_vals_to_pdf(self, fn_vals: np.ndarray, color: Color = BLUE) -> Polygon:
         """Given function values defined on xspace, produces a visual MObject representing the probability density function."""
         ax = self.ax
@@ -136,7 +202,7 @@ class PDFScene(Scene):
         ).set_style(stroke_width=1.0, fill_opacity=0.5, fill_color=color)
 
     def fn_coeffs_to_pdf(self, fn_coeffs: np.ndarray, color: Color = RED) -> Polygon:
-        """Given function fourier coefficients defined on wspace, produces a visual MObject representing the graph."""
+        """Given function Fourier coefficients defined on wspace, produces a visual MObject representing the graph."""
         ax = self.w_ax
         return Polygon(
             *list(map(lambda t: ax.c2p(*t), zip(self.wspace, fn_coeffs))),
@@ -200,7 +266,7 @@ class PDFScene(Scene):
         ).set_style(stroke_opacity=0.0, fill_opacity=0.5, fill_color=BLUE)
 
 
-class OrnsteinUhlenbeck(PDFScene):
+class OrnsteinUhlenbeck(PDFRealsScene):
     """
     Animates the flow of (the PDF of) an arbitrary mean-zero random variable X on R
     along the Ornstein-Uhlenbeck evolution
@@ -215,70 +281,13 @@ class OrnsteinUhlenbeck(PDFScene):
     where J is the standardized Fisher information.
     """
 
-    def convolve_with_gaussian(
-        self,
-        fn: Callable[[float], float],
-        bd: float,  # Assumes the function is supported on [-bd, bd]
-        mean: float,
-        std: float,
-        step_size: float = 1e-2,
-    ):
-        """Convolves the probability distribution for the given function with compact support
-        against the PDF of a Gaussian with the given mean and standard deviation. Does so by
-        computing a grid of values for each functionand computing the convolution."""
-        xmin = self.xmin
-        xmax = self.xmax
-        fx_min, fx_max = -bd, bd
-
-        # Calculate values of the two functions being convoluted within this range
-        f_imin = math.floor(fx_min / step_size)
-        f_imax = math.ceil(fx_max / step_size)
-        num_fn_vals = f_imax - f_imin + 1
-        fn_array = np.array([fn(i * step_size) for i in range(f_imin, f_imax + 1)])
-
-        gaussian_imin = math.floor((xmin + fx_min) / step_size)
-        gaussian_imax = math.ceil((xmax + fx_max) / step_size)
-        num_gaussian_vals = gaussian_imax - gaussian_imin + 1
-        gaussian_array = np.array(
-            [
-                gaussian_pdf(mean, std, i * step_size)
-                for i in range(gaussian_imin, gaussian_imax + 1)
-            ]
-        )
-
-        # Calculate the function values of the convolution.
-        # Zero-th entry is the value of the function at step_size * (gaussian_imin + f_imax)
-        # while the last entry is the value of the function at step_size * (gaussian_imax + f_imin)
-        conv_array = step_size * np.array(
-            [
-                np.sum(fn_array[::-1] * gaussian_array[i : i + num_fn_vals])
-                for i in range(num_gaussian_vals - num_fn_vals + 1)
-            ]
-        )
-        num_conv_vals = num_gaussian_vals - num_fn_vals
-        conv_xmin = step_size * (gaussian_imin + f_imax)
-        conv_xmax = step_size * (gaussian_imax + f_imin)
-
-        # Turn it into an actual PDF curve
-        x_vals = np.linspace(conv_xmin, conv_xmax, num_conv_vals)
-        ax = self.ax
-        conv_curve_and_area = Polygon(
-            *[ax.c2p(x_vals[i], conv_array[i]) for i in range(num_conv_vals)],
-            ax.c2p(x_vals[-1], 0),
-            ax.c2p(x_vals[0], 0),
-        ).set_style(
-            stroke_opacity=1.0, stroke_width=1.5, fill_opacity=0.5, fill_color=BLUE
-        )
-
-        return conv_curve_and_area
-
     def construct(self):
-        self.init_pdf()
+        self.init_params()
         ax = self.ax
         self.add(ax)
         # self.add(self.w_ax)
 
-        # Generate a probability density function of choice.
+        # Example probability density function: two spikes at +1 and -1.
         width = 0.18
 
         def fn(t):
@@ -286,7 +295,7 @@ class OrnsteinUhlenbeck(PDFScene):
                 return 0.5 / width
             return 0.0
 
-        # Define Fourier coefficient function for the function, i.e. its integral against e^{TAU * iwx}.
+        # Define Fourier coefficient function, i.e. its integral against e^{2πiwx}.
         def fn_fourier(w):
             x4 = 1.0 + width / 2
             x3 = 1.0 - width / 2
@@ -339,22 +348,113 @@ class OrnsteinUhlenbeck(PDFScene):
             return conv_vals
 
         # Do the evolution
-        theta_tracker = ValueTracker(0.03)
-        s_tracker = ValueTracker(0.03)
+        t_tracker = ValueTracker(0.0001)
+        theta_tracker = ValueTracker(0.03).add_updater(
+            lambda mobj: mobj.set_value(
+                math.asin(math.sqrt(1 - math.exp(-2 * t_tracker.get_value())))
+            )
+        )
+        s_tracker = ValueTracker(0.03).add_updater(
+            lambda mobj: mobj.set_value(
+                math.sqrt(1 - math.exp(-2 * t_tracker.get_value()))
+            )
+        )
+        conv_vals = ValueTracker(
+            convolve_with_gaussian(math.sqrt(1 - math.exp(-2 * t_tracker.get_value())))
+        )
+        conv_vals.add_updater(
+            lambda mobj: mobj.set_value(
+                convolve_with_gaussian(
+                    math.sqrt(1 - math.exp(-2 * t_tracker.get_value()))
+                )
+            )
+        )
         conv_curve = self.fn_vals_to_pdf(
-            convolve_with_gaussian(math.sin(theta_tracker.get_value())), GREEN
+            convolve_with_gaussian(math.sqrt(1 - math.exp(-2 * t_tracker.get_value()))),
+            GREEN,
         )
+        self.add(conv_vals)
 
-        s_label = VGroup()
-        s_label.add(Tex("s="))
-        s_label.add(
-            DecimalNumber()
-            .add_updater(lambda mobj: mobj.set_value(math.sin(theta_tracker.get_value())))
-            .next_to(s_label[0], RIGHT, 0.3)
+        # s-value
+        t_label = VGroup()
+        t_label.add(Tex("t="))
+        t_label.add(
+            DecimalNumber(num_decimal_places=4)
+            .add_updater(lambda mobj: mobj.set_value(t_tracker.get_value()))
+            .next_to(t_label[0], RIGHT, 0.3)
         )
-        s_label.set_height(0.3).next_to(self.ax, UR, -1.5)
+        t_label.set_height(0.3).next_to(self.ax, UR, -1.5)
 
-        self.play(FadeIn(conv_curve), FadeOut(curve), FadeIn(s_label))
+        # entropy value
+        h_label = VGroup()
+        h_label.add(Tex("H(X^{(t)})="))
+        h_label.add(
+            DecimalNumber(num_decimal_places=4)
+            .add_updater(
+                lambda mobj: mobj.set_value(
+                    self.calculate_entropy(conv_vals.get_value())
+                )
+            )
+            .next_to(h_label[0], RIGHT, 0.3)
+        )
+        h_label.set_height(0.3).next_to(t_label, DOWN, 0.5)
+
+        # fisher information
+        j_label = VGroup()
+        j_label.add(Tex("J(X^{(t)})="))
+        j_label.add(
+            DecimalNumber(num_decimal_places=4)
+            .add_updater(
+                lambda mobj: mobj.set_value(
+                    self.calculate_fisher_information(conv_vals.get_value())
+                )
+            )
+            .next_to(j_label[0], RIGHT, 0.3)
+        )
+        j_label.set_height(0.3).next_to(h_label, DOWN, 0.5)
+
+        # graphic showing the idea in a linear space
+        imag_ax = Axes(
+            (-0.1, 1.1), (-0.1, 1.1), axis_config={"include_ticks": False}
+        ).set_width(1.5)
+        imag_ax_components = [
+            Tex("\\mathcal{N}(0, \\sigma)", font_size=24).next_to(
+                imag_ax.x_axis, RIGHT, 0.3
+            ),
+            Tex("X", font_size=24).next_to(imag_ax.y_axis, UP, 0.3),
+            Arrow(imag_ax.c2p(0, 0), imag_ax.c2p(0, 1))
+            .set_color(GREEN)
+            .add_updater(
+                lambda arr: arr.put_start_and_end_on(
+                    imag_ax.c2p(0, 0),
+                    imag_ax.c2p(
+                        math.sqrt(1 - math.exp(-2 * t_tracker.get_value())),
+                        math.exp(-t_tracker.get_value()),
+                    ),
+                )
+            ),
+            Tex("X^{(t)}", font_size=24).add_updater(
+                lambda mobj: mobj.next_to(
+                    imag_ax.c2p(
+                        math.sqrt(1 - math.exp(-2 * t_tracker.get_value())),
+                        math.exp(-t_tracker.get_value()),
+                    ),
+                    RIGHT,
+                    0.1,
+                )
+            ),
+        ]
+        imag_ax.add(*imag_ax_components)
+        imag_ax.next_to(self.ax, UL, -1.0)
+
+        self.play(
+            FadeIn(conv_curve),
+            FadeOut(curve),
+            FadeIn(t_label),
+            FadeIn(h_label),
+            FadeIn(j_label),
+            FadeIn(imag_ax),
+        )
 
         # TODO Make a number line evoking the idea of interpolation between the
         # base distribution and a Gaussian.
@@ -362,197 +462,28 @@ class OrnsteinUhlenbeck(PDFScene):
         self.wait()
 
         conv_curve.add_updater(
-            lambda mobj: mobj.become(
-                self.fn_vals_to_pdf(
-                    convolve_with_gaussian(math.sin(theta_tracker.get_value())), GREEN
-                )
-            )
+            lambda mobj: mobj.become(self.fn_vals_to_pdf(conv_vals.get_value(), GREEN))
         )
-        self.play(theta_tracker.animate.set_value(PI/2 - 0.01), run_time=10.0, rate_func=linear)
+        # self.play(
+        #     theta_tracker.animate.set_value(PI / 2 - 0.01),
+        #     run_time=10.0,
+        #     rate_func=linear,
+        # )
+        self.play(
+            t_tracker.animate.set_value(1.5),
+            run_time=20.0,
+            rate_func=linear,
+        )
         self.embed()
 
-        # # Do the same for a Gaussian
-        # std = 0.1
-        # gaussian_vals = np.array([gaussian_pdf(0, std, x) for x in self.xspace])
-        # gaussian_coeffs = self.fourier_transform(gaussian_vals)
 
-        # # Optional: Add graph of the gaussian
-        # gaussian_curve = self.fn_vals_to_pdf(gaussian_vals, GREEN)
-        # gaussian_curve_fourier = self.fn_coeffs_to_pdf(gaussian_coeffs, ORANGE)
+class Entropy(Scene):
+    """Depicting the entropy of a distribution."""
 
-        # # Do the convolution
-        # conv_coeffs = fn_coeffs * gaussian_coeffs
-        # conv_vals = self.inv_fourier_transform(conv_coeffs)
-        # conv_curve = self.fn_vals_to_pdf(conv_vals, GREEN)
-        # conv_curve_fourier = self.fn_coeffs_to_pdf(conv_coeffs, ORANGE)
-
-        # self.add(conv_curve)
-
-        # self.embed()
-        # # We might need to take a wider Fourier domain to detect the function itself.
-        # wmin, wmax = -200.0, 200.0
-        # xmin, xmax = self.xmin, self.xmax
-        # num_pts = 1000
-        # fourier_domain = np.linspace(wmin, wmax, num_pts)
-        # pos_domain = np.linspace(xmin, xmax, num_pts)
-
-        # # Fourier transform matrix. First axis is w, second axis is x
-        # fourier_transform = np.array(
-        #     [
-        #         [cmath.exp(complex(0, 1) * w * x) for x in pos_domain]
-        #         for w in fourier_domain
-        #     ]
-        # )
-
-        # def rotate_to_gaussian(s: float):
-        #     """Computes the PDF of the function sf + sqrt(1-s^2)N(0, 1)
-        #     using the Fourier transform."""
-        #     # Calculate the Fourier coefficients of the function
-        #     fn_fourier_coeffs = np.array(
-        #         [fn_fourier(w / s) / s for w in fourier_domain]
-        #     ).astype(np.float64)
-
-        #     # Compute the Fourier coefficients of a Gaussian of variance sqrt(1-s^2).
-        #     std = math.sqrt(1 - s**2)
-        #     gaussian_fourier_coeffs = np.array(
-        #         [gaussian_pdf(0, 1 / s, w) for w in fourier_domain]
-        #     )
-
-        #     # Directly multiply them to get the Fourier coefficients of the convolution
-        #     conv_fourier_coeffs = fn_fourier_coeffs * gaussian_fourier_coeffs
-        #     conv_values = np.sum(
-        #         fourier_transform * conv_fourier_coeffs[:, np.newaxis], axis=0
-        #     )
-        #     return conv_values.astype(np.float64)
-
-        # conv_values = rotate_to_gaussian(0.9)
-        # conv_curve = Polygon(
-        #     *[
-        #         ax.c2p(pos_domain[i], conv_values[i].astype(np.float64))
-        #         for i in range(num_pts)
-        #     ],
-        #     ax.c2p(xmax, 0),
-        #     ax.c2p(xmin, 0),
-        # ).set_style(stroke_width=1.0, fill_opacity=0.5, fill_color=BLUE)
-
-        # self.embed()
-
-        # # Set the range within which the function is supported
-        # bd = 1.0 + 0.5 * width
-
-        # # pdf_curve = self.make_pdf_curve(fn, 400)
-        # # pdf_area = self.make_pdf_area(fn, 400)
-
-        # # Tracker which is exponential of time value
-        # exp_time = ValueTracker(1.0001)
-        # exp_time_label = VGroup()
-        # exp_time_label.add(Tex("t = "))
-        # exp_time_label.add(
-        #     DecimalNumber(num_decimal_places=5)
-        #     .add_updater(lambda mobj: mobj.set_value(math.log(exp_time.get_value())))
-        #     .next_to(exp_time_label[0], RIGHT, 0.3)
-        # )
-        # exp_time_label.set_height(0.3)
-        # exp_time_label.next_to(ax, UR, -1.0)
-        # self.add(exp_time_label)
-
-        # # Calculate the convolution with a Gaussian according to the Ornstein-Uhlenbeck process
-        # conv_curve_and_area = self.convolve_with_gaussian(
-        #     lambda x: 1.0001 * fn(x * 1.0001),
-        #     bd / 1.0001,
-        #     0.0,
-        #     1 / math.sqrt(1 - 1 / math.pow(1.0001, 2)),
-        #     step_size=0.002 / 1.0001,
-        # )
-
-        # self.add(conv_curve_and_area)
-        # self.wait()
-
-        # # Change it to the evolute X^(t) = e^{-t}X + sqrt(1 - e^{-2t})N
-
-        # # Option 1: Add an updater, and tweak that
-        # conv_curve_and_area.add_updater(
-        #     lambda mobj: mobj.become(
-        #         self.convolve_with_gaussian(
-        #             lambda x: exp_time.get_value() * fn(x * exp_time.get_value()),
-        #             bd / exp_time.get_value(),
-        #             0.0,
-        #             math.sqrt(1 - 1 / math.pow(exp_time.get_value(), 2)),
-        #             step_size=0.002 / exp_time.get_value(),
-        #         )
-        #     )
-        # )
-        # self.play(exp_time.animate.set_value(1.001), rate_func=linear, run_time=3.0)
-        # self.play(exp_time.animate.set_value(1.01), rate_func=linear, run_time=3.0)
-        # self.play(exp_time.animate.set_value(1.1), rate_func=linear, run_time=3.0)
-        # self.play(exp_time.animate.set_value(2.0), rate_func=linear, run_time=3.0)
-        # self.play(exp_time.animate.set_value(5.0), rate_func=linear, run_time=3.0)
-
-        # Option 2: Do animated transformations step-by-step
-        # num_steps = 100
-        # for et in np.logspace(math.log10(1.0001), math.log10(5.0), num_steps):
-        #     self.play(
-        #         exp_time.animate.set_value(et),
-        #         conv_curve_and_area.animate.become(
-        #             self.convolve_with_gaussian(
-        #                 lambda x: et * fn(x * et),
-        #                 bd / et,
-        #                 0.0,
-        #                 math.sqrt(1 - 1 / math.pow(et, 2)),
-        #                 step_size=0.01 / et,
-        #             )
-        #         ),
-        #         rate_func=linear,
-        #         run_time=15.0 / num_steps,
-        #     )
-
-        # self.embed()
+    pass
 
 
-class GaussianCurve(PDFScene):
-    def construct(self):
-        self.init_pdf()
-        ax = self.ax
-        self.add(ax)
+class RelativeEntropy(Scene):
+    """Depicting the relative entropy D(P|Q) (also known as the KL-divergence)."""
 
-        pdf_curve = self.make_gaussian_curve(0.0, 1.0)
-        pdf_area = self.make_gaussian_area(0.0, 1.0)
-
-        mean = ValueTracker(0.0)
-        std = ValueTracker(1.0)
-
-        mean_label = VGroup()
-        mean_label.add(Tex("\\mu ="))
-        mean_val_label = DecimalNumber()
-        mean_val_label.add_updater(lambda mobj: mobj.set_value(mean.get_value()))
-        mean_val_label.next_to(mean_label[0], RIGHT, 0.3)
-        mean_label.add(mean_val_label)
-        mean_label.set_height(0.3)
-
-        std_label = VGroup()
-        std_label.add(Tex("\\sigma ="))
-        std_val_label = DecimalNumber()
-        std_val_label.add_updater(lambda mobj: mobj.set_value(std.get_value()))
-        std_val_label.next_to(std_label[0], RIGHT, 0.3)
-        std_label.add(std_val_label)
-        std_label.set_height(0.3)
-        std_label.next_to(mean_label, DOWN, 0.4)
-
-        pdf_label = VGroup(mean_label, std_label)
-        pdf_label.next_to(ax, UR, -1.0)
-
-        pdf_curve.add_updater(
-            lambda mobj: mobj.become(
-                self.make_gaussian_curve(mean.get_value(), std.get_value())
-            )
-        )
-        pdf_area.add_updater(
-            lambda mobj: mobj.become(
-                self.make_gaussian_area(mean.get_value(), std.get_value())
-            )
-        )
-
-        self.add(pdf_label)
-        self.add(pdf_curve, pdf_area)
-
-        self.embed()
+    pass
