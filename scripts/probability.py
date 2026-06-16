@@ -8,6 +8,7 @@ from typing import Annotated, Dict, Iterable, Literal, Tuple, Union
 
 import numpy as np
 from manimlib import *
+from scipy.special import laguerre
 
 
 def gaussian_pdf(mean: float, std: float, t: float):
@@ -27,11 +28,91 @@ class PDFDiscreteScene(Scene):
 class PDFPositiveRealsScene(Scene):
     """
     Base class for scenes involving the visualization of a probability density function on the positive real numbers.
-    Convolution of density functions is performed using the Laplace transform.
+    Convolution of density functions is generically performed using the Laplace transform.
     """
 
-    # TODO
-    pass
+    def construct(self):
+        self.init_params()
+        self.embed()
+
+    def init_params(self):
+        # Visualization of the probability distribution
+        self.xmax = 5.0
+        self.num_x = 100
+        self.del_x = self.xmax / self.num_x
+        self.xmin = self.del_x
+        self.xspace = np.linspace(self.del_x, self.xmax, self.num_x)
+
+        # Parameters for the Laplace transform
+        self.smax = 10.0
+        self.num_s = 400
+        self.del_s = self.smax / self.num_s
+        self.smin = self.del_s
+        self.sspace = np.linspace(self.del_s, self.smax, self.num_s)
+
+        self.laplace_matrix = np.array(
+            [[math.exp(-x * s) for x in self.xspace] for s in self.sspace]
+        )
+
+        # Set up the axes for probability density functions.
+        self.ymin = 0.0
+        self.ymax = 8.0
+        self.ax = Axes(
+            (0, self.xmax), (self.ymin, self.ymax), width=10.0, x_axis_config={}
+        )
+        self.ax.add(
+            *[
+                Tex("x", font_size=30).next_to(self.ax.x_axis, RIGHT, 0.2),
+                Tex("p(x)", font_size=30).next_to(self.ax.y_axis, UP, 0.2),
+            ]
+        )
+
+        # Set up the axes for the Laplace transform
+        self.symin = 0.0
+        self.symax = 4.0
+        self.s_ax = Axes(
+            (0, self.smax),
+            (self.symin, self.symax),
+            width=10.0,
+            x_axis_config={"tick_offset": 10.0, "include_ticks": False},
+        ).next_to(self.ax, RIGHT, 2.0)
+
+        self.s_ax.add(
+            *[
+                Tex("s", font_size=30).next_to(self.s_ax.x_axis, RIGHT, 0.2),
+                Tex("\\hat{p}(s)", font_size=30).next_to(self.s_ax.y_axis, UP, 0.2),
+            ]
+        )
+
+    def calculate_mean(self, fn_vals: np.ndarray) -> float:
+        """Calculates the mean of a given probability density function based on input values.
+        This is given by the formula int p(x) * x dx."""
+        return np.sum(fn_vals * self.xspace) * self.del_x
+
+    def calculate_variance(self, fn_vals: np.ndarray) -> float:
+        """Calculates the variance of a given probability density function based on input values.
+        This is given by the formula int p(x) * x^2 dx - (int p(x) * x dx)^2."""
+        return (
+            np.sum(fn_vals * np.pow(self.xspace, 2)) * self.del_x
+            - self.calculate_mean(fn_vals) ** 2
+        )
+
+    def calculate_entropy(self, fn_vals: np.ndarray) -> float:
+        """Calculates the entropy of a given probability density function based on input values.
+        This is given by the formula -int p(x) * log(p(x)) dx."""
+        return -np.sum(fn_vals * np.log(np.abs(fn_vals))) * self.del_x
+
+    def fn_vals_to_pdf(self, fn_vals: np.ndarray, color: Color = BLUE) -> Polygon:
+        """Given function values defined on xspace, produces a visual MObject representing the probability density function."""
+        ax = self.ax
+        return Polygon(
+            *list(map(lambda t: ax.c2p(*t), zip(self.xspace, fn_vals))),
+            ax.c2p(self.xmax, 0),
+            ax.c2p(self.xmin, 0),
+        ).set_style(stroke_width=1.0, fill_opacity=0.5, fill_color=color)
+
+    def make_gibbs_curve(self):
+        raise NotImplementedError
 
 
 class PDFRealsScene(Scene):
@@ -266,7 +347,7 @@ class PDFRealsScene(Scene):
         ).set_style(stroke_opacity=0.0, fill_opacity=0.5, fill_color=BLUE)
 
 
-class OrnsteinUhlenbeck(PDFRealsScene):
+class OUProcess(PDFRealsScene):
     """
     Animates the flow of (the PDF of) an arbitrary mean-zero random variable X on R
     along the Ornstein-Uhlenbeck evolution
@@ -347,18 +428,8 @@ class OrnsteinUhlenbeck(PDFRealsScene):
             conv_vals = self.inv_fourier_transform(conv_coeffs)
             return conv_vals
 
-        # Do the evolution
+        # Define evolving objects
         t_tracker = ValueTracker(0.0001)
-        theta_tracker = ValueTracker(0.03).add_updater(
-            lambda mobj: mobj.set_value(
-                math.asin(math.sqrt(1 - math.exp(-2 * t_tracker.get_value())))
-            )
-        )
-        s_tracker = ValueTracker(0.03).add_updater(
-            lambda mobj: mobj.set_value(
-                math.sqrt(1 - math.exp(-2 * t_tracker.get_value()))
-            )
-        )
         conv_vals = ValueTracker(
             convolve_with_gaussian(math.sqrt(1 - math.exp(-2 * t_tracker.get_value())))
         )
@@ -375,7 +446,7 @@ class OrnsteinUhlenbeck(PDFRealsScene):
         )
         self.add(conv_vals)
 
-        # s-value
+        # t-value
         t_label = VGroup()
         t_label.add(Tex("t="))
         t_label.add(
@@ -413,7 +484,8 @@ class OrnsteinUhlenbeck(PDFRealsScene):
         )
         j_label.set_height(0.3).next_to(h_label, DOWN, 0.5)
 
-        # graphic showing the idea in a linear space
+        # Graphic showing the idea in the real vector space of probability distributions
+        # (i.e. functions whose domain is the event space and codomain is the outcome space.)
         imag_ax = Axes(
             (-0.1, 1.1), (-0.1, 1.1), axis_config={"include_ticks": False}
         ).set_width(1.5)
@@ -456,24 +528,120 @@ class OrnsteinUhlenbeck(PDFRealsScene):
             FadeIn(imag_ax),
         )
 
-        # TODO Make a number line evoking the idea of interpolation between the
-        # base distribution and a Gaussian.
-
         self.wait()
 
         conv_curve.add_updater(
             lambda mobj: mobj.become(self.fn_vals_to_pdf(conv_vals.get_value(), GREEN))
         )
-        # self.play(
-        #     theta_tracker.animate.set_value(PI / 2 - 0.01),
-        #     run_time=10.0,
-        #     rate_func=linear,
-        # )
         self.play(
             t_tracker.animate.set_value(1.5),
             run_time=20.0,
             rate_func=linear,
         )
+        self.embed()
+
+
+class CIRProcess(PDFPositiveRealsScene):
+    # A probability distribution on R_+ with mean lambda, described by p(x) = (1/λ) * exp(-x/λ).
+    # The user can tweak the parameter lambda in real-time, and accordingly, the probability distribution
+    # load-balances according to a CIR-process
+
+    # Rather than using the Laplace transform to compute the trajectory, we use Laguerre polynomials:
+    # - Decompose the initial probability distribution p(x) into components exp(-x/λ) * sum_n (a_n * L_n(x/λ))
+    # where a_n is calculated via a_n = λ * int_{R_+} p(λx)L_n(x)exp(x)dx
+    # - The n-th Laguerre coefficient evolves through time as a_n(t) = a_n * exp(-nt/λ).
+
+    # TODO Replace the OU-process evolution computation by using Hermite polynomials.
+    def construct(self):
+        self.init_params()
+        self.add(self.ax)
+
+        # Define starting function as a rectangular bar
+        mean = ValueTracker(2.0)
+        width = 0.4
+
+        def initial_function(x: float):
+            if abs(x - mean.get_value()) < width / 2:
+                return 1 / width
+            return 0.0
+
+        # Calculate initial PDF values
+        init_vals = np.array([initial_function(x) for x in self.xspace])
+        init_curve = self.fn_vals_to_pdf(init_vals)
+        self.add(init_curve)
+
+        # OPTION 1: Finite-difference according to the PDE, with a specified mean
+        dt = 0.4 * (self.del_x ** 2) / self.xmax # stability condition
+        substeps = 20
+        def update_vals(fn_vals):
+            m = mean.get_value()
+            for _ in range(substeps):
+                dp = np.zeros(self.num_x)
+                dp[0] = fn_vals[0] / m + (fn_vals[1] - fn_vals[0])/ self.del_x
+                dp[-1] = 0.0
+                dp[1:-1] = fn_vals[1:-1] / m + (1 + self.xspace[1:-1] / m) * (fn_vals[2:] - fn_vals[:-2]) / (2 * self.del_x) + self.xspace[1:-1] * (fn_vals[2:] + fn_vals[:-2] - 2 * fn_vals[1:-1]) / (self.del_x ** 2)
+                fn_vals += dt * dp
+                fn_vals = fn_vals / (self.del_x * np.sum(fn_vals)) # renormalize
+            return fn_vals
+
+        fn_vals = np.array([initial_function(x) for x in self.xspace])
+        curve = self.fn_vals_to_pdf(fn_vals, GREEN)
+        self.add(curve)
+        self.wait()
+        for _ in range(100):
+            fn_vals = update_vals(fn_vals)
+            curve.become(self.fn_vals_to_pdf(fn_vals, GREEN))
+            self.wait(0.01)
+        self.embed()
+        # OPTION 2: Laguerre coefficients approach
+        # Array of function values L_n(x/λ) for Laguerre polynomials, which are orthonormal under
+        # <L_n, L_m> = int_{R_+} L_n(x/λ)L_m(x/λ)exp(-x/λ)dx
+        max_laguerre_deg = 200
+        laguerre_array = np.stack(
+            [laguerre(n)(self.xspace / mean) for n in range(max_laguerre_deg + 1)],
+            axis=0,
+        )
+
+        # Use integral to calculate initial coefficients of p(x) = exp(-x/λ) * sum_n (a_n * L_n(x/λ))
+        # TODO This should be recalculated every time the "mean" is shifted
+        laguerre_coeffs = np.array(
+            [
+                np.sum(laguerre_array[n] * init_vals) * self.del_x / mean
+                for n in range(max_laguerre_deg + 1)
+            ]
+        )
+
+        # Define time-dependent function values and resulting curve evolution
+        timer = ValueTracker(0.02)
+        fn_curve = self.fn_vals_to_pdf(
+            np.exp(-self.xspace / mean)
+            * sum(
+                np.exp(-n * timer.get_value() / mean)
+                * laguerre_coeffs[n]
+                * laguerre_array[n]
+                for n in range(max_laguerre_deg + 1)
+            ),
+            GREEN,
+        )
+
+        self.wait()
+        self.play(FadeIn(fn_curve), FadeOut(init_curve))
+
+        fn_curve.add_updater(
+            lambda mobj: mobj.become(
+                self.fn_vals_to_pdf(
+                    np.exp(-self.xspace / mean)
+                    * sum(
+                        np.exp(-n * timer.get_value() / mean)
+                        * laguerre_coeffs[n]
+                        * laguerre_array[n]
+                        for n in range(max_laguerre_deg + 1)
+                    ),
+                    GREEN,
+                )
+            )
+        )
+
         self.embed()
 
 
