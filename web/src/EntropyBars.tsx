@@ -62,7 +62,7 @@ function render(
 
   ctx.clearRect(0, 0, W, H);
 
-  // ── Bars ──────────────────────────────────────────────────────────────────
+  // ── Bars and labels ───────────────────────────────────────────────────────
   for (let i = 0; i < probs.length; i++) {
     const p = probs[i]!;
     const barTop = p > 0 ? Math.min(-Math.log(p), YMAX) : YMAX;
@@ -76,11 +76,21 @@ function render(
     ctx.strokeStyle = COLORS.distStroke;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(bx, by, bw, bh);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "rgba(40, 110, 230, 0.8)";
+    ctx.font = "15px system-ui, sans-serif";
+    ctx.fillText(`p`, bx + bw / 2, by + bh + 10);
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.fillText(`${i + 1}`, bx + bw / 2 + 5, by + bh + 10 + 5);
+    ctx.font = "13px system-ui, sans-serif";
   }
 
   // ── Grid ──────────────────────────────────────────────────────────────────
   ctx.lineWidth = 1;
   ctx.strokeStyle = COLORS.grid;
+  ctx.fillStyle = COLORS.distFill;
   for (let yi = 1; yi < YMAX; yi++) {
     ctx.beginPath();
     ctx.moveTo(cx(0), cy(yi));
