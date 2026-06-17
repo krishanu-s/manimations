@@ -350,6 +350,7 @@ const GAP = 24;
 const CANVAS_W = 2 * PANEL_W + GAP;
 const CANVAS_H = PANEL_H;
 const SCALE = 210; // pixels per unit (unit circle radius = SCALE pixels)
+const SLIDER_W = PANEL_W - 2 * GAP;
 
 const LCX = PANEL_W / 2;
 const LCY = PANEL_H / 2;
@@ -502,7 +503,7 @@ function buildUI(container: HTMLElement): {
   slider.max = "0";
   slider.value = "0";
   slider.disabled = true;
-  slider.style.cssText = `width:min(${CANVAS_W}px,90vw);cursor:pointer;accent-color:#64a0ff;`;
+  slider.style.cssText = `width:min(${SLIDER_W}px,90vw);cursor:pointer;accent-color:#64a0ff;`;
 
   const recomputeBtn = document.createElement("button");
   recomputeBtn.textContent = "Recompute mapping";

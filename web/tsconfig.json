@@ -6,7 +6,8 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
     "noEmit": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "jsx": "react-jsx"
   },
   "include": ["src"]
 }

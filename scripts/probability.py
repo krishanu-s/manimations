@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import cmath
 import math
-from typing import Annotated, Dict, Iterable, Literal, Tuple, Union
+from typing import Annotated, Dict, Iterable, Literal, Optional, Tuple, Union
 
 import numpy as np
 from manimlib import *
@@ -18,11 +18,26 @@ def gaussian_pdf(mean: float, std: float, t: float):
 
 class PDFDiscreteScene(Scene):
     """
-    Base class for scenes involving the visualization of a probability distribution on a finite set, using a bar graph.
+    Base class for scenes involving the visualization of a probability distribution on a finite set, using a bar graph
+    or placing them.
     """
 
-    # TODO
-    pass
+    def init_params(self):
+        # Number of bins
+        self.num_x = 7
+
+        self.ax = Axes((0, self.num_x), (0, 1), width=5.0, x_axis_config={})
+        self.ax.add(
+            *[
+                Tex("n", font_size=30).next_to(self.ax.x_axis, RIGHT, 0.2),
+                Tex("p_n", font_size=30).next_to(self.ax.y_axis, UP, 0.2),
+            ]
+        )
+        pass
+
+    def construct(self):
+        self.init_params()
+        self.embed()
 
 
 class PDFPositiveRealsScene(Scene):
@@ -38,7 +53,7 @@ class PDFPositiveRealsScene(Scene):
     def init_params(self):
         # Visualization of the probability distribution
         self.xmax = 5.0
-        self.num_x = 100
+        self.num_x = 200
         self.del_x = self.xmax / self.num_x
         self.xmin = self.del_x
         self.xspace = np.linspace(self.del_x, self.xmax, self.num_x)
@@ -542,17 +557,100 @@ class OUProcess(PDFRealsScene):
 
 
 class CIRProcess(PDFPositiveRealsScene):
-    # A probability distribution on R_+ with mean lambda, described by p(x) = (1/λ) * exp(-x/λ).
-    # The user can tweak the parameter lambda in real-time, and accordingly, the probability distribution
-    # load-balances according to a CIR-process
+    """
+    Given an initial probability distribution p_0(x) for x > 0, models the Cox-Ingersoll-Ross (CIR)
+    process (AKA Feller diffusion) to evolve the probability distribution over time
 
-    # Rather than using the Laplace transform to compute the trajectory, we use Laguerre polynomials:
-    # - Decompose the initial probability distribution p(x) into components exp(-x/λ) * sum_n (a_n * L_n(x/λ))
-    # where a_n is calculated via a_n = λ * int_{R_+} p(λx)L_n(x)exp(x)dx
-    # - The n-th Laguerre coefficient evolves through time as a_n(t) = a_n * exp(-nt/λ).
+    d/dt p_t(x) = d/dx ((x/λ - 1)p_t(x)) + (d/dx)^2 p_t(x)
 
-    # TODO Replace the OU-process evolution computation by using Hermite polynomials.
+    where λ is the target mean. The long-term steady state is the Gibbs/exponential distribution
+    g(x) = (1/λ) * exp(-x/λ), which is the maximal-entropy distribution with mean λ. The rate
+    of change of the entropy at time t is equal to the relative Fisher information I_rel(p_t || g).
+    The process can also be viewed as the gradient flow of the KL-divergence D_{KL}(p || g), weighted by x.
+
+    This simulation shows the entropy steadily increasing.
+    """
+
+    def init_params(self):
+        super().init_params()
+
+        # Stable finite-difference timestep
+        self.del_t = 0.4 * (self.del_x**2) / self.xmax  # stability condition
+
+    def evolve_vals_finite_difference(
+        self,
+        mean: float,
+        fn_vals: np.ndarray,
+        substeps: int = 20,
+        dt: Optional[float] = None,
+    ):
+        """Simulates the CIR process using finite-difference method."""
+        if dt is None:
+            dt = self.del_t
+
+        for _ in range(substeps):
+            dp = np.zeros(self.num_x)
+            dp[0] = fn_vals[0] / mean + (fn_vals[1] - fn_vals[0]) / self.del_x
+            dp[-1] = 0.0
+            d_vals = (fn_vals[2:] - fn_vals[:-2]) / (2 * self.del_x)
+            d2_vals = (fn_vals[2:] + fn_vals[:-2] - 2 * fn_vals[1:-1]) / (self.del_x**2)
+            dp[1:-1] = (
+                fn_vals[1:-1] / mean
+                + (1 + self.xspace[1:-1] / mean) * d_vals
+                + self.xspace[1:-1] * d2_vals
+            )
+            fn_vals += dt * dp
+            fn_vals = fn_vals / (self.del_x * np.sum(fn_vals))  # renormalize
+        return fn_vals
+
+    def decompose_into_laguerre(
+        self, fn_vals: np.ndarray, mean: float, max_deg: int = 200
+    ):
+        """Decomposes a function p(x) as a linear combination
+        p(x) = exp(-x/λ) * sum_n (a_n * L_n(x/λ))
+
+        and then evolve with time"""
+        laguerre_array = np.stack(
+            [laguerre(n)(self.xspace / mean) for n in range(max_deg + 1)],
+            axis=0,
+        )
+
+        laguerre_coeffs = np.array(
+            [
+                np.sum(laguerre_array[n] * fn_vals) * self.del_x / mean
+                for n in range(max_deg + 1)
+            ]
+        )
+        timer = ValueTracker(0.02)
+
+        fn_curve = self.fn_vals_to_pdf(
+            np.exp(-self.xspace / mean)
+            * sum(
+                np.exp(-n * timer.get_value() / mean)
+                * laguerre_coeffs[n]
+                * laguerre_array[n]
+                for n in range(max_deg + 1)
+            ),
+            GREEN,
+        )
+
+        fn_curve.add_updater(
+            lambda mobj: mobj.become(
+                self.fn_vals_to_pdf(
+                    np.exp(-self.xspace / mean)
+                    * sum(
+                        np.exp(-n * timer.get_value() / mean)
+                        * laguerre_coeffs[n]
+                        * laguerre_array[n]
+                        for n in range(max_deg + 1)
+                    ),
+                    GREEN,
+                )
+            )
+        )
+
     def construct(self):
+        """Defines an initial"""
         self.init_params()
         self.add(self.ax)
 
@@ -571,77 +669,15 @@ class CIRProcess(PDFPositiveRealsScene):
         self.add(init_curve)
 
         # OPTION 1: Finite-difference according to the PDE, with a specified mean
-        dt = 0.4 * (self.del_x ** 2) / self.xmax # stability condition
-        substeps = 20
-        def update_vals(fn_vals):
-            m = mean.get_value()
-            for _ in range(substeps):
-                dp = np.zeros(self.num_x)
-                dp[0] = fn_vals[0] / m + (fn_vals[1] - fn_vals[0])/ self.del_x
-                dp[-1] = 0.0
-                dp[1:-1] = fn_vals[1:-1] / m + (1 + self.xspace[1:-1] / m) * (fn_vals[2:] - fn_vals[:-2]) / (2 * self.del_x) + self.xspace[1:-1] * (fn_vals[2:] + fn_vals[:-2] - 2 * fn_vals[1:-1]) / (self.del_x ** 2)
-                fn_vals += dt * dp
-                fn_vals = fn_vals / (self.del_x * np.sum(fn_vals)) # renormalize
-            return fn_vals
-
         fn_vals = np.array([initial_function(x) for x in self.xspace])
         curve = self.fn_vals_to_pdf(fn_vals, GREEN)
         self.add(curve)
         self.wait()
+
         for _ in range(100):
-            fn_vals = update_vals(fn_vals)
+            fn_vals = self.evolve_vals_finite_difference(mean.get_value(), fn_vals)
             curve.become(self.fn_vals_to_pdf(fn_vals, GREEN))
-            self.wait(0.01)
-        self.embed()
-        # OPTION 2: Laguerre coefficients approach
-        # Array of function values L_n(x/λ) for Laguerre polynomials, which are orthonormal under
-        # <L_n, L_m> = int_{R_+} L_n(x/λ)L_m(x/λ)exp(-x/λ)dx
-        max_laguerre_deg = 200
-        laguerre_array = np.stack(
-            [laguerre(n)(self.xspace / mean) for n in range(max_laguerre_deg + 1)],
-            axis=0,
-        )
-
-        # Use integral to calculate initial coefficients of p(x) = exp(-x/λ) * sum_n (a_n * L_n(x/λ))
-        # TODO This should be recalculated every time the "mean" is shifted
-        laguerre_coeffs = np.array(
-            [
-                np.sum(laguerre_array[n] * init_vals) * self.del_x / mean
-                for n in range(max_laguerre_deg + 1)
-            ]
-        )
-
-        # Define time-dependent function values and resulting curve evolution
-        timer = ValueTracker(0.02)
-        fn_curve = self.fn_vals_to_pdf(
-            np.exp(-self.xspace / mean)
-            * sum(
-                np.exp(-n * timer.get_value() / mean)
-                * laguerre_coeffs[n]
-                * laguerre_array[n]
-                for n in range(max_laguerre_deg + 1)
-            ),
-            GREEN,
-        )
-
-        self.wait()
-        self.play(FadeIn(fn_curve), FadeOut(init_curve))
-
-        fn_curve.add_updater(
-            lambda mobj: mobj.become(
-                self.fn_vals_to_pdf(
-                    np.exp(-self.xspace / mean)
-                    * sum(
-                        np.exp(-n * timer.get_value() / mean)
-                        * laguerre_coeffs[n]
-                        * laguerre_array[n]
-                        for n in range(max_laguerre_deg + 1)
-                    ),
-                    GREEN,
-                )
-            )
-        )
-
+            self.wait(0.005)
         self.embed()
 
 
