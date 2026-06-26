@@ -21,6 +21,16 @@ import {
   plotDashedCurve,
   LegendItem,
 } from "./viz-utils";
+import {
+  evalCharFn,
+  convolveGaussians,
+  cplxPow,
+  computeVariance,
+  computeMean,
+  gaussPDF,
+  buildPDF as bPDF,
+  fft,
+} from "./pdf-utils";
 
 // ── Grid ───────────────────────────────────────────────────────────────────────
 
@@ -35,138 +45,30 @@ const XSPACE = Object.freeze(
 const PANEL_W = 380;
 const PANEL_H = 300;
 
+// Defining parameters for Gaussians in this applet.
 const CTRL_XS: readonly number[] = [-3, -2, -1, 0, 1, 2, 3];
 const N_CTRL = 7;
 const BASIS_STD = 0.6; // std of each Gaussian basis function
+const STANDARD_STDS = Array(N_CTRL).fill(BASIS_STD);
 const HIT_R = 14; // pixel hit radius for control points
 
 const DEFAULT_HEIGHTS: readonly number[] = [
   0.15, 0.2, 0.2, 0.15, 0.2, 0.35, 0.05,
 ];
 
-// ── FFT (Cooley-Tukey radix-2, in-place) ─────────────────────────────────────
-
-function fft(re: Float64Array, im: Float64Array, invert: boolean): void {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      let t = re[i]!;
-      re[i] = re[j]!;
-      re[j] = t;
-      t = im[i]!;
-      im[i] = im[j]!;
-      im[j] = t;
-    }
-  }
-  for (let len = 2; len <= n; len <<= 1) {
-    const ang = (invert ? 1 : -1) * ((2 * Math.PI) / len);
-    const wr = Math.cos(ang),
-      wi = Math.sin(ang);
-    for (let i = 0; i < n; i += len) {
-      let cr = 1,
-        ci = 0;
-      for (let j = 0; j < len >> 1; j++) {
-        const u = i + j,
-          v = i + j + (len >> 1);
-        const vr = re[v]! * cr - im[v]! * ci;
-        const vi = re[v]! * ci + im[v]! * cr;
-        re[v] = re[u]! - vr;
-        im[v] = im[u]! - vi;
-        re[u] = re[u]! + vr;
-        im[u] = im[u]! + vi;
-        const nc = cr * wr - ci * wi;
-        ci = cr * wi + ci * wr;
-        cr = nc;
-      }
-    }
-  }
-  if (invert)
-    for (let i = 0; i < n; i++) {
-      re[i]! /= n;
-      im[i]! /= n;
-    }
-}
-
 // ── PDF construction ───────────────────────────────────────────────────────────
-
-function gaussPDF(x: number, mu: number, sigma: number): number {
-  const z = (x - mu) / sigma;
-  return Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI));
-}
 
 // Builds the PDF as a sum of Gaussians scaled by the point heights
 function buildPDF(heights: readonly number[]): Float64Array {
-  const pdf = new Float64Array(N_FFT);
-  let norm = 0;
-  for (let k = 0; k < N_FFT; k++) {
-    const x = XSPACE[k]!;
-    let v = 0;
-    for (let i = 0; i < N_CTRL; i++)
-      v += heights[i]! * gaussPDF(x, CTRL_XS[i]!, BASIS_STD);
-    pdf[k] = v;
-    norm += v;
-  }
-  norm *= DX;
-  if (norm > 1e-15) for (let k = 0; k < N_FFT; k++) pdf[k]! /= norm;
-  return pdf;
+  return bPDF({
+    means: CTRL_XS,
+    stds: STANDARD_STDS,
+    scales: heights,
+  });
 }
 
-function computeMean(pdf: Float64Array): number {
-  let ex1 = 0;
-  for (let k = 0; k < N_FFT; k++) {
-    ex1 += XSPACE[k]! * pdf[k]!;
-  }
-  return ex1 * DX;
-}
-
-function computeVariance(pdf: Float64Array): number {
-  // Added a step in case the PDF has nonzero mean.
-  let ex1 = 0;
-  let ex2 = 0;
-  for (let k = 0; k < N_FFT; k++) {
-    ex2 += XSPACE[k]! ** 2 * pdf[k]!;
-    ex1 += XSPACE[k]! * pdf[k]!;
-  }
-  return ex2 * DX - (ex1 * DX) ** 2;
-}
-
-// ── Analytical characteristic function ────────────────────────────────────────
-// buildPDF produces p_X = Σᵢ hᵢ·N(x; xᵢ, σ_b²) / Z, so the characteristic
-// function is exact:
-//   φ_X(ω) = exp(−σ_b²ω²/2) · [Σᵢ hᵢ exp(iω·xᵢ)] / [Σᵢ hᵢ]
-// Evaluating this directly at any ω avoids the interpolation error that appears
-// when reading a DFT-sampled charFn at non-integer frequency indices.
-
-function evalCharFn(
-  heights: readonly number[],
-  omega: number,
-): [number, number] {
-  const gf = Math.exp(-0.5 * BASIS_STD * BASIS_STD * omega * omega);
-  let sumH = 0,
-    sumCos = 0,
-    sumSin = 0;
-  for (let i = 0; i < N_CTRL; i++) {
-    const h = heights[i]!;
-    sumH += h;
-    sumCos += h * Math.cos(omega * CTRL_XS[i]!);
-    sumSin += h * Math.sin(omega * CTRL_XS[i]!);
-  }
-  if (sumH < 1e-15) return [1, 0];
-  return [(gf * sumCos) / sumH, (gf * sumSin) / sumH];
-}
-
-// Complex power via polar form: (a + ib)^n
-function cplxPow(a: number, b: number, n: number): [number, number] {
-  const r = Math.sqrt(a * a + b * b);
-  if (r < 1e-30) return [0, 0];
-  const th = Math.atan2(b, a) * n;
-  return [r ** n * Math.cos(th), r ** n * Math.sin(th)];
-}
-
-// ── Output PDF via inverse FFT ─────────────────────────────────────────────────
+// Computes the n-fold convolution of the user-defined PDF (Gaussians scaled by point heights),
+// and then rotates it towards a single 0-centered Gaussian using the FFT.
 // φ_Y(ω) = φ_X(α·ω)^n · exp(−½·t·σ²·ω²),  α = √(1−t)/√n
 // p_Y(x_k) = FFT[(−1)^j · φ_Y(ω_j)][k] / (N·DX)
 function computeOutputPDF(
@@ -181,7 +83,11 @@ function computeOutputPDF(
   for (let j = 0; j < N_FFT; j++) {
     const sj = j <= N_FFT >> 1 ? j : j - N_FFT;
     const omega = (2 * Math.PI * sj) / (N_FFT * DX);
-    const [xr, xi] = evalCharFn(heights, alpha * omega);
+    const l = heights.length;
+    const [xr, xi] = evalCharFn(
+      { means: CTRL_XS, stds: STANDARD_STDS, scales: heights },
+      alpha * omega,
+    );
     const [pr, pi] = cplxPow(xr, xi, n);
     const gf = Math.exp(-0.5 * t * sigma2 * omega * omega);
     const s = j % 2 === 0 ? 1 : -1;
