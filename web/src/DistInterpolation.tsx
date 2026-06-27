@@ -21,6 +21,7 @@ import {
   evalCharFn,
   fft,
   buildPDF as bPDF,
+  interpPDFfromValues as iPDF,
   N_FFT,
   XMIN,
   XMAX,
@@ -42,21 +43,18 @@ const BASIS_STD = 0.6;
 const STANDARD_STDS = Array(N_CTRL).fill(BASIS_STD);
 const HIT_R = 14;
 
-const DEFAULT_HEIGHTS_A: readonly number[] = [
-  0.05, 0.35, 0.2, 0.1, 0.2, 0.2, 0.05,
-];
-const DEFAULT_HEIGHTS_B: readonly number[] = [
-  0.05, 0.1, 0.15, 0.05, 0.25, 0.3, 0.1,
-];
+let hts_A: readonly number[] = [0.05, 0.35, 0.2, 0.1, 0.2, 0.2, 0.05];
+const [, norm_A] = bPDF(iPDF(CTRL_XS, STANDARD_STDS, hts_A));
+const DEFAULT_HEIGHTS_A: readonly number[] = hts_A.map((h) => h / norm_A);
+
+let hts_B: readonly number[] = [0.05, 0.1, 0.15, 0.05, 0.25, 0.3, 0.1];
+const [, norm_B] = bPDF(iPDF(CTRL_XS, STANDARD_STDS, hts_B));
+const DEFAULT_HEIGHTS_B: readonly number[] = hts_B.map((h) => h / norm_B);
 
 // ── PDF construction ──────────────────────────────────────────────────────────
 
 function buildPDF(heights: readonly number[]): Float64Array {
-  let [pdf, norm] = bPDF({
-    means: CTRL_XS,
-    stds: STANDARD_STDS,
-    scales: heights,
-  });
+  let [pdf, norm] = bPDF(iPDF(CTRL_XS, STANDARD_STDS, heights));
   return pdf;
 }
 
@@ -273,16 +271,21 @@ function applyDrag(
   const ph = H - PAD.top - PAD.bottom;
   const scaleY = H / drag.rectH;
   const delta = ((-(clientY - drag.startClientY) * scaleY) / ph) * drag.ymax;
-  const xi = CTRL_XS[drag.idx]!;
-  let xsum2 = 0;
-  for (let k = 0; k < N_CTRL; k++)
-    if (k !== drag.idx) xsum2 += CTRL_XS[k]! ** 2;
-  const next = drag.startHeights.map((h0, j) => {
-    const vj = j === drag.idx ? 1 : (-xi * CTRL_XS[j]!) / xsum2;
-    return h0 + vj * delta;
-  });
+
+  const next = drag.startHeights.map((h0, j) =>
+    j === drag.idx ? h0 + delta : h0,
+  );
   if (next.some((v) => v < 0)) return null;
-  return next;
+
+  // Scale all heights by 1/norm so the PDF already integrates to 1.
+  // interpPDFfromValues is linear in heights, so scaling heights by 1/norm
+  // scales the Gaussian coefficients by the same factor, making their
+  // integral (= norm) equal 1.
+  const [pdf, norm] = bPDF(iPDF(CTRL_XS, STANDARD_STDS, next));
+  if (norm < 1e-15) return null;
+  if (pdf.some((x) => x < 0)) return null;
+  // If any of the output PDF values are negative, return null
+  return next.map((h) => h / norm);
 }
 
 // ── React component ────────────────────────────────────────────────────────────

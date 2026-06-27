@@ -279,6 +279,8 @@ export default function CLTInterpolation() {
     // integral (= norm) equal 1.
     const [, norm] = bPDF(interpPDFfromValues(CTRL_XS, STANDARD_STDS, next));
     if (norm < 1e-15) return;
+    // If any of the output PDF values are negative, return null
+    if (pdf.some((x) => x < 0)) return;
     setHeights(next.map((h) => h / norm));
   }
 

@@ -4,16 +4,19 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && esbuild src/riemann.ts --bundle --minify --outfile=dist/riemann.js",
+    "build": "npm run build:riemann && npm run build:feller && npm run build:ou && npm run build:entropy && npm run build:clt && npm run build:dist-interpolation",
+    "build:riemann": "tsc --noEmit && esbuild src/riemann.ts --bundle --minify --outfile=dist/riemann.js",
     "build:feller": "tsc --noEmit && esbuild src/feller-entry.tsx --bundle --minify --outfile=dist/feller.js",
     "build:ou": "tsc --noEmit && esbuild src/ou-entry.tsx --bundle --minify --outfile=dist/ou.js",
     "build:entropy": "tsc --noEmit && esbuild src/entropy-bars-entry.tsx --bundle --minify --outfile=dist/entropy-bars.js",
     "build:clt": "tsc --noEmit && esbuild src/clt-entry.tsx --bundle --minify --outfile=dist/clt.js",
-    "dev": "esbuild src/riemann.ts --bundle --sourcemap --outfile=dist/riemann.js --watch",
+    "dev:riemann": "esbuild src/riemann.ts --bundle --sourcemap --outfile=dist/riemann.js --watch",
     "dev:feller": "esbuild src/feller-entry.tsx --bundle --sourcemap --outfile=dist/feller.js --watch",
     "dev:ou": "esbuild src/ou-entry.tsx --bundle --sourcemap --outfile=dist/ou.js --watch",
     "dev:entropy": "esbuild src/entropy-bars-entry.tsx --bundle --sourcemap --outfile=dist/entropy-bars.js --watch",
     "dev:clt": "esbuild src/clt-entry.tsx --bundle --sourcemap --outfile=dist/clt.js --watch",
+    "build:dist-interpolation": "tsc --noEmit && esbuild src/dist-interpolation-entry.tsx --bundle --minify --outfile=dist/dist-interpolation.js",
+    "dev:dist-interpolation": "esbuild src/dist-interpolation-entry.tsx --bundle --sourcemap --outfile=dist/dist-interpolation.js --watch",
     "deploy": "cp dist/* '/Users/ksankar/Local Sites/krishanusankar/app/public/wp-content/themes/assembler/assets/js/'",
     "build:deploy": "npm run build && npm run deploy"
   },
@@ -24,6 +27,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "ml-matrix": "^6.13.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   }
