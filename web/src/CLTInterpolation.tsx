@@ -25,22 +25,18 @@ import {
   evalCharFn,
   convolveGaussians,
   cplxPow,
-  computeVariance,
-  computeMean,
+  estimateVariance,
+  estimateMean,
   gaussPDF,
   buildPDF as bPDF,
   fft,
+  N_FFT,
+  XMIN,
+  XMAX,
+  DX,
+  XSPACE,
+  interpPDFfromValues,
 } from "./pdf-utils";
-
-// ── Grid ───────────────────────────────────────────────────────────────────────
-
-const N_FFT = 512; // must be a power of 2
-const XMIN = -6.0;
-const XMAX = 6.0;
-const DX = (XMAX - XMIN) / N_FFT;
-const XSPACE = Object.freeze(
-  Array.from({ length: N_FFT }, (_, k) => XMIN + k * DX),
-) as readonly number[];
 
 const PANEL_W = 380;
 const PANEL_H = 300;
@@ -52,19 +48,17 @@ const BASIS_STD = 0.6; // std of each Gaussian basis function
 const STANDARD_STDS = Array(N_CTRL).fill(BASIS_STD);
 const HIT_R = 14; // pixel hit radius for control points
 
-const DEFAULT_HEIGHTS: readonly number[] = [
-  0.15, 0.2, 0.2, 0.15, 0.2, 0.35, 0.05,
-];
+let hts: readonly number[] = [0.15, 0.2, 0.2, 0.15, 0.2, 0.35, 0.05];
+const [, norm] = bPDF(interpPDFfromValues(CTRL_XS, STANDARD_STDS, hts));
+const DEFAULT_HEIGHTS: readonly number[] = hts.map((h) => h / norm);
 
 // ── PDF construction ───────────────────────────────────────────────────────────
 
-// Builds the PDF as a sum of Gaussians scaled by the point heights
+// Builds the PDF as a linear combination of Gaussians passing through the heights,
+// appropriately scaled to have total integral 1.
 function buildPDF(heights: readonly number[]): Float64Array {
-  return bPDF({
-    means: CTRL_XS,
-    stds: STANDARD_STDS,
-    scales: heights,
-  });
+  let [pdf, norm] = bPDF(interpPDFfromValues(CTRL_XS, STANDARD_STDS, heights));
+  return pdf;
 }
 
 // Computes the n-fold convolution of the user-defined PDF (Gaussians scaled by point heights),
@@ -198,7 +192,7 @@ export default function CLTInterpolation() {
   const dragRef = useRef<DragState | null>(null);
 
   const pdf = useMemo(() => buildPDF(heights), [heights]);
-  const sigma2 = useMemo(() => computeVariance(pdf), [pdf]);
+  const sigma2 = useMemo(() => estimateVariance(pdf), [pdf]);
   const outputPdf = useMemo(
     () => computeOutputPDF(heights, sigma2, n, t),
     [heights, sigma2, n, t],
@@ -273,18 +267,19 @@ export default function CLTInterpolation() {
     const scaleY = PANEL_H / drag.rectH;
     const delta =
       ((-(e.clientY - drag.startClientY) * scaleY) / ph) * drag.ymax;
-    const xi = CTRL_XS[drag.idx]!;
-    // Minimum-norm displacement preserving Σhⱼxⱼ=0:
-    //   v[j] = 1 for j=idx,  −xᵢ·xⱼ / Σ_{k≠i} xₖ²  otherwise
-    let xsum2 = 0;
-    for (let k = 0; k < N_CTRL; k++)
-      if (k !== drag.idx) xsum2 += CTRL_XS[k]! ** 2;
-    const next = drag.startHeights.map((h0, j) => {
-      const vj = j === drag.idx ? 1 : (-xi * CTRL_XS[j]!) / xsum2;
-      return h0 + vj * delta;
-    });
+
+    const next = drag.startHeights.map((h0, j) =>
+      j === drag.idx ? h0 + delta : h0,
+    );
     if (next.some((v) => v < 0)) return;
-    setHeights(() => next);
+
+    // Scale all heights by 1/norm so the PDF already integrates to 1.
+    // interpPDFfromValues is linear in heights, so scaling heights by 1/norm
+    // scales the Gaussian coefficients by the same factor, making their
+    // integral (= norm) equal 1.
+    const [, norm] = bPDF(interpPDFfromValues(CTRL_XS, STANDARD_STDS, next));
+    if (norm < 1e-15) return;
+    setHeights(next.map((h) => h / norm));
   }
 
   function handlePointerUp() {
