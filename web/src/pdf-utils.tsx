@@ -64,6 +64,17 @@ export function estimateScore(pdf: Float64Array, x: number): number {
   return (pdf[k + 1]! - pdf[k - 1]!) / (2 * DX * px);
 }
 
+// Estimate the score values on all of XSPACE
+export function estimateScoreArray(pdf: Float64Array): Float64Array {
+  const result = new Float64Array(N_FFT);
+  for (let k = 1; k < N_FFT - 1; k++) {
+    const px = pdf[k]!;
+    result[k] = px < 1e-15 ? 0 : (pdf[k + 1]! - pdf[k - 1]!) / (2 * DX * px);
+  }
+  // result[0] and result[N_FFT - 1] remain 0 (boundary, near-zero density)
+  return result;
+}
+
 // Numerically compute the variance of the score function (Fisher information)
 export function estimateFisher(pdf: Float64Array): number {
   let fisher = 0;

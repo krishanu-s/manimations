@@ -28,6 +28,9 @@ import {
   DX,
   XSPACE,
   estimateEntropy,
+  estimateFisher,
+  estimateScore,
+  estimateScoreArray,
 } from "./pdf-utils";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -70,8 +73,10 @@ function computeBlendPDF(
   const sqB = Math.sqrt(Math.max(0, t));
   const aRe = new Float64Array(N_FFT);
   const aIm = new Float64Array(N_FFT);
-  const gA = { means: CTRL_XS, stds: STANDARD_STDS, scales: heightsA };
-  const gB = { means: CTRL_XS, stds: STANDARD_STDS, scales: heightsB };
+  // const gA = { means: CTRL_XS, stds: STANDARD_STDS, scales: heightsA };
+  // const gB = { means: CTRL_XS, stds: STANDARD_STDS, scales: heightsB };
+  const gA = iPDF(CTRL_XS, STANDARD_STDS, heightsA);
+  const gB = iPDF(CTRL_XS, STANDARD_STDS, heightsB);
   for (let j = 0; j < N_FFT; j++) {
     const sj = j <= N_FFT >> 1 ? j : j - N_FFT;
     const omega = (2 * Math.PI * sj) / (N_FFT * DX);
@@ -156,6 +161,52 @@ function renderInputPanel(
     ctx.stroke();
   }
 
+  // Overlay of score function as a horizontal vector field along the x-axis.
+  // Each arrow is centered at its sample point; length ∝ |score|, direction = sign(score).
+  const pdfScore = estimateScoreArray(pdf);
+  const num_arrows = 8;
+  const plotW = W - PAD.left - PAD.right;
+  const maxHalfLen = (plotW / num_arrows) * 0.38; // max arrow half-length in pixels
+  const HEAD_LEN = 6;
+  const HEAD_HALF_W = 4;
+
+  // Find max |score| across arrow positions for relative scaling
+  let maxAbsScore = 1e-10;
+  for (let i = 0; i < num_arrows; i++) {
+    const x = XMIN + ((i + 0.5) * (XMAX - XMIN)) / num_arrows;
+    const k = Math.max(1, Math.min(N_FFT - 2, Math.round((x - XMIN) / DX)));
+    maxAbsScore = Math.max(maxAbsScore, Math.abs(pdfScore[k]!));
+  }
+
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < num_arrows; i++) {
+    const x = XMIN + ((i + 0.5) * (XMAX - XMIN)) / num_arrows;
+    const k = Math.max(1, Math.min(N_FFT - 2, Math.round((x - XMIN) / DX)));
+    const score = pdfScore[k]!;
+    const halfLen = (score / maxAbsScore) * maxHalfLen;
+    if (Math.abs(halfLen) < 2) continue;
+
+    const cx = tr.cx(x);
+    const cy = tr.cy(0);
+    const x0 = cx - halfLen;
+    const x1 = cx + halfLen;
+    const dir = score > 0 ? 1 : -1;
+
+    ctx.strokeStyle = strokeColor;
+    ctx.beginPath();
+    ctx.moveTo(x0, cy);
+    ctx.lineTo(x1, cy);
+    ctx.stroke();
+
+    ctx.fillStyle = strokeColor;
+    ctx.beginPath();
+    ctx.moveTo(x1, cy);
+    ctx.lineTo(x1 - dir * HEAD_LEN, cy - HEAD_HALF_W);
+    ctx.lineTo(x1 - dir * HEAD_LEN, cy + HEAD_HALF_W);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   ctx.fillStyle = "rgba(60,60,60,0.8)";
   ctx.font = "12px system-ui, sans-serif";
   ctx.textAlign = "right";
@@ -164,6 +215,11 @@ function renderInputPanel(
     `Entropy = ${estimateEntropy(pdf).toFixed(2)}`,
     W - PAD.right - 4,
     PAD.top + 2,
+  );
+  ctx.fillText(
+    `J(X) = ${estimateFisher(pdf).toFixed(2)}`,
+    W - PAD.right - 4,
+    PAD.top + 2 + 14 + 14,
   );
 }
 
@@ -218,9 +274,14 @@ function renderOutputPanel(
   ctx.textBaseline = "top";
   ctx.fillText(`t = ${t.toFixed(2)}`, W - PAD.right - 4, PAD.top + 2);
   ctx.fillText(
-    `Entropy = ${estimateEntropy(pdfOut).toFixed(2)}`,
+    `H(X) = ${estimateEntropy(pdfOut).toFixed(2)}`,
     W - PAD.right - 4,
     PAD.top + 2 + 14,
+  );
+  ctx.fillText(
+    `J(X) = ${estimateFisher(pdfOut).toFixed(2)}`,
+    W - PAD.right - 4,
+    PAD.top + 2 + 14 + 14,
   );
 }
 
@@ -283,8 +344,8 @@ function applyDrag(
   // integral (= norm) equal 1.
   const [pdf, norm] = bPDF(iPDF(CTRL_XS, STANDARD_STDS, next));
   if (norm < 1e-15) return null;
-  if (pdf.some((x) => x < 0)) return null;
   // If any of the output PDF values are negative, return null
+  if (pdf.some((x) => x < 0)) return null;
   return next.map((h) => h / norm);
 }
 
