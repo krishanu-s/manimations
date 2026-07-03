@@ -43,6 +43,7 @@ export interface NumberLineSet {
 export interface NumberLineCollection {
   id: string;
   sets: NumberLineSet[];
+  domain: [number, number];
 }
 
 const DEFAULT_DOMAIN: [number, number] = [0, 10];
@@ -66,131 +67,88 @@ const DEFAULT_COLLECTIONS: NumberLineCollection[] = [
     id: "Q1",
     sets: makeSets(
       [
-        { label: "A", value: 4.2 },
-        { label: "B", value: 4.6 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 5.4 },
-        { label: "E", value: 5.8 },
+        { label: "2", value: 2.0 },
+        { label: "3", value: 3.0 },
+        { label: "5", value: 5.0 },
       ],
       [
-        { label: "A", value: 2.8 },
-        { label: "B", value: 3.9 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 6.1 },
-        { label: "E", value: 7.3 },
+        { label: "1", value: 1.0 },
+        { label: "3", value: 3.0 },
+        { label: "5", value: 5.0 },
       ],
       [
-        { label: "A", value: 0.8 },
-        { label: "B", value: 2.5 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 7.6 },
-        { label: "E", value: 9.3 },
+        { label: "2", value: 2.0 },
+        { label: "3", value: 3.0 },
+        { label: "5", value: 5.0 },
       ],
     ),
+    domain: [0, 6],
   },
   {
     id: "Q2",
     sets: makeSets(
       [
-        { label: "A", value: 3.5 },
-        { label: "B", value: 3.8 },
-        { label: "C", value: 4.0 },
-        { label: "D", value: 4.2 },
-        { label: "E", value: 4.5 },
+        { label: "2", value: 2.0 },
+        { label: "5", value: 5.0 },
+        { label: "7", value: 7.0 },
       ],
       [
-        { label: "A", value: 2.0 },
-        { label: "B", value: 3.2 },
-        { label: "C", value: 4.0 },
-        { label: "D", value: 4.9 },
-        { label: "E", value: 6.0 },
+        { label: "-1", value: -1.0 },
+        { label: "0", value: 0.0 },
+        { label: "2", value: 2.0 },
       ],
       [
-        { label: "A", value: 0.5 },
-        { label: "B", value: 1.8 },
-        { label: "C", value: 4.0 },
-        { label: "D", value: 6.5 },
-        { label: "E", value: 8.5 },
+        { label: "-2", value: -2.0 },
+        { label: "1", value: 1.0 },
+        { label: "2", value: 2.0 },
       ],
     ),
+    domain: [-3, 8],
   },
   {
     id: "Q3",
     sets: makeSets(
       [
-        { label: "A", value: 5.5 },
-        { label: "B", value: 5.8 },
-        { label: "C", value: 6.0 },
-        { label: "D", value: 6.3 },
-        { label: "E", value: 6.6 },
+        { label: "1", value: 1.0 },
+        { label: "2", value: 2.0 },
+        { label: "4", value: 4.0 },
       ],
       [
-        { label: "A", value: 4.0 },
-        { label: "B", value: 5.2 },
-        { label: "C", value: 6.0 },
-        { label: "D", value: 7.0 },
-        { label: "E", value: 8.3 },
+        { label: "-1", value: -1.0 },
+        { label: "2", value: 2.0 },
+        { label: "3", value: 3.0 },
       ],
       [
-        { label: "A", value: 1.0 },
-        { label: "B", value: 3.5 },
-        { label: "C", value: 6.0 },
-        { label: "D", value: 8.0 },
-        { label: "E", value: 9.8 },
+        { label: "0", value: 0.0 },
+        { label: "2", value: 2.0 },
+        { label: "5", value: 5.0 },
       ],
     ),
+    domain: [-2, 6],
   },
   {
     id: "Q4",
     sets: makeSets(
       [
-        { label: "A", value: 4.7 },
-        { label: "B", value: 4.85 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 5.15 },
-        { label: "E", value: 5.3 },
+        { label: "-1", value: -1.0 },
+        { label: "0", value: 0.0 },
+        { label: "3", value: 3.0 },
+        { label: "4", value: 4.0 },
       ],
       [
-        { label: "A", value: 3.0 },
-        { label: "B", value: 4.0 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 6.3 },
-        { label: "E", value: 7.5 },
+        { label: "0", value: 0.0 },
+        { label: "2", value: 2.0 },
+        { label: "3", value: 3.0 },
+        { label: "5", value: 5.0 },
       ],
       [
-        { label: "A", value: 0.3 },
-        { label: "B", value: 2.0 },
-        { label: "C", value: 5.0 },
-        { label: "D", value: 8.0 },
-        { label: "E", value: 9.7 },
+        { label: "-1", value: -1.0 },
+        { label: "0", value: 0.0 },
+        { label: "1", value: 1.0 },
+        { label: "3", value: 3.0 },
       ],
     ),
-  },
-  {
-    id: "Q5",
-    sets: makeSets(
-      [
-        { label: "A", value: 4.0 },
-        { label: "B", value: 4.3 },
-        { label: "C", value: 4.5 },
-        { label: "D", value: 4.7 },
-        { label: "E", value: 5.0 },
-      ],
-      [
-        { label: "A", value: 2.5 },
-        { label: "B", value: 3.5 },
-        { label: "C", value: 4.5 },
-        { label: "D", value: 5.5 },
-        { label: "E", value: 6.8 },
-      ],
-      [
-        { label: "A", value: 0.5 },
-        { label: "B", value: 1.5 },
-        { label: "C", value: 3.0 },
-        { label: "D", value: 6.0 },
-        { label: "E", value: 9.5 },
-      ],
-    ),
+    domain: [-2, 6],
   },
 ];
 
@@ -208,6 +166,8 @@ const CARD_HEIGHT = 118;
 const VB_W = 640;
 const VB_H = 64;
 const PAD_X = 26;
+const NUM_FONT_SIZE = 24;
+const TICK_LENGTH = 10;
 
 function scaleX(value: number, domain: [number, number]): number {
   const [lo, hi] = domain;
@@ -217,7 +177,13 @@ function scaleX(value: number, domain: [number, number]): number {
 
 // ─── Row (single number line) ─────────────────────────────────────────────
 
-function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, number] }) {
+function NumberLineRow({
+  set,
+  domain,
+}: {
+  set: NumberLineSet;
+  domain: [number, number];
+}) {
   const axisY = VB_H / 2 + 4;
   const [lo, hi] = domain;
   const ticks = useMemo(() => {
@@ -238,10 +204,10 @@ function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, n
           key={t}
           x1={scaleX(t, domain)}
           x2={scaleX(t, domain)}
-          y1={axisY - 4}
-          y2={axisY + 4}
-          stroke={INK.hairline}
-          strokeWidth={1}
+          y1={axisY - TICK_LENGTH / 2}
+          y2={axisY + TICK_LENGTH / 2}
+          stroke={"#000000"}
+          strokeWidth={2}
         />
       ))}
       <line
@@ -249,14 +215,13 @@ function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, n
         x2={scaleX(hi, domain)}
         y1={axisY}
         y2={axisY}
-        stroke={INK.baseline}
-        strokeWidth={1.5}
-        strokeLinecap="round"
+        stroke={"#000000"}
+        strokeWidth={3}
       />
       <text
         x={scaleX(lo, domain)}
         y={axisY + 20}
-        fontSize={10}
+        fontSize={20}
         fill={INK.muted}
         textAnchor="middle"
         fontFamily="system-ui, sans-serif"
@@ -266,7 +231,7 @@ function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, n
       <text
         x={scaleX(hi, domain)}
         y={axisY + 20}
-        fontSize={10}
+        fontSize={20}
         fill={INK.muted}
         textAnchor="middle"
         fontFamily="system-ui, sans-serif"
@@ -281,15 +246,15 @@ function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, n
             <circle
               cx={x}
               cy={axisY}
-              r={6}
+              r={10}
               fill={set.color}
-              stroke="#fff"
-              strokeWidth={1.5}
+              stroke="#000"
+              strokeWidth={1.0}
             />
             <text
               x={x}
-              y={above ? axisY - 14 : axisY + 24}
-              fontSize={12}
+              y={above ? axisY - 20 : axisY + 30}
+              fontSize={NUM_FONT_SIZE}
               fontWeight={600}
               fill={INK.primary}
               textAnchor="middle"
@@ -314,17 +279,19 @@ export interface NumberLineSortProps {
 
 export default function NumberLineSort({
   promptSuffix = "Order the sets from least to greatest spread.",
-  domain = DEFAULT_DOMAIN,
   collections = DEFAULT_COLLECTIONS,
 }: NumberLineSortProps) {
   const [collectionIndex, setCollectionIndex] = useState(0);
   const collection = collections[collectionIndex]!;
   const sets = collection.sets;
+  const domain = collection.domain;
 
   const [order, setOrder] = useState<string[]>(() => sets.map((s) => s.id));
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
-  const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(null);
+  const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(
+    null,
+  );
 
   const dragStartY = useRef(0);
   const dragStartOrder = useRef<string[]>([]);
@@ -338,7 +305,9 @@ export default function NumberLineSort({
 
   const goToCollection = useCallback(
     (delta: number) => {
-      setCollectionIndex((i) => (i + delta + collections.length) % collections.length);
+      setCollectionIndex(
+        (i) => (i + delta + collections.length) % collections.length,
+      );
     },
     [collections.length],
   );
@@ -350,7 +319,10 @@ export default function NumberLineSort({
   }, [sets]);
 
   const correctOrder = useMemo(
-    () => [...sets].sort((s1, s2) => stdDev(s1.points) - stdDev(s2.points)).map((s) => s.id),
+    () =>
+      [...sets]
+        .sort((s1, s2) => stdDev(s1.points) - stdDev(s2.points))
+        .map((s) => s.id),
     [sets],
   );
 
@@ -379,13 +351,19 @@ export default function NumberLineSort({
       const startIndex = startOrder.indexOf(draggingId);
       const withoutDragged = startOrder.filter((x) => x !== draggingId);
       const rawIndex = startIndex + deltaY / ROW_HEIGHT;
-      const newIndex = Math.min(Math.max(Math.round(rawIndex), 0), withoutDragged.length);
+      const newIndex = Math.min(
+        Math.max(Math.round(rawIndex), 0),
+        withoutDragged.length,
+      );
       const newOrder = [
         ...withoutDragged.slice(0, newIndex),
         draggingId,
         ...withoutDragged.slice(newIndex),
       ];
       setOrder(newOrder);
+      if (newIndex != startIndex) {
+        setDragOffset(deltaY + (startIndex - newIndex) * ROW_HEIGHT);
+      }
     };
 
     const handleUp = () => {
@@ -404,7 +382,9 @@ export default function NumberLineSort({
   }, [draggingId]);
 
   const handleCheck = useCallback(() => {
-    setFeedback(order.join(",") === correctOrder.join(",") ? "correct" : "incorrect");
+    setFeedback(
+      order.join(",") === correctOrder.join(",") ? "correct" : "incorrect",
+    );
   }, [order, correctOrder]);
 
   const navButtonStyle: React.CSSProperties = {
@@ -433,7 +413,9 @@ export default function NumberLineSort({
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <div style={{ display: "inline-flex", alignItems: "center", gap: "14px" }}>
+      <div
+        style={{ display: "inline-flex", alignItems: "center", gap: "14px" }}
+      >
         <button
           aria-label="Previous collection"
           onClick={() => goToCollection(-1)}
@@ -456,7 +438,9 @@ export default function NumberLineSort({
             boxSizing: "border-box",
           }}
         >
-          <div style={{ fontSize: "16px", fontWeight: 600, color: INK.primary }}>
+          <div
+            style={{ fontSize: "16px", fontWeight: 600, color: INK.primary }}
+          >
             {collection.id}: {promptSuffix}
           </div>
 
@@ -500,32 +484,6 @@ export default function NumberLineSort({
                     boxSizing: "border-box",
                   }}
                 >
-                  <span style={{ color: INK.muted, fontSize: "14px", letterSpacing: "1px" }}>
-                    ⠿
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      color: INK.secondary,
-                      flexShrink: 0,
-                      width: "56px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "50%",
-                        background: set.color,
-                        flexShrink: 0,
-                      }}
-                    />
-                    {set.name}
-                  </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <NumberLineRow set={set} domain={domain} />
                   </div>
@@ -551,12 +509,20 @@ export default function NumberLineSort({
               Check order
             </button>
             {feedback === "correct" && (
-              <span style={{ color: INK.good, fontSize: "13px", fontWeight: 600 }}>
+              <span
+                style={{ color: INK.good, fontSize: "13px", fontWeight: 600 }}
+              >
                 ✓ Correct!
               </span>
             )}
             {feedback === "incorrect" && (
-              <span style={{ color: INK.critical, fontSize: "13px", fontWeight: 600 }}>
+              <span
+                style={{
+                  color: INK.critical,
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
+              >
                 ✗ Not quite — keep adjusting.
               </span>
             )}
