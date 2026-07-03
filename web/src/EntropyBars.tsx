@@ -87,6 +87,20 @@ function render(
     ctx.font = "13px system-ui, sans-serif";
   }
 
+  // ── Entropy line ──────────────────────────────────────────────────────────
+  const entropy = shannonEntropy(probs);
+  ctx.strokeStyle = COLORS.targetStroke;
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath();
+  ctx.moveTo(cx(0), cy(entropy));
+  ctx.lineTo(cx(1), cy(entropy));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "13px system-ui, sans-serif";
+  ctx.fillStyle = COLORS.targetStroke;
+  ctx.textBaseline = "middle";
+  ctx.fillText(`H(X)`, cx(0) - 16, cy(entropy));
+
   // ── Grid ──────────────────────────────────────────────────────────────────
   ctx.lineWidth = 1;
   ctx.strokeStyle = COLORS.grid;
@@ -185,7 +199,6 @@ function render(
   }
 
   // ── Entropy annotation ────────────────────────────────────────────────────
-  const entropy = shannonEntropy(probs);
   ctx.fillStyle = "rgba(40, 40, 40, 0.8)";
   ctx.font = "13px system-ui, sans-serif";
   ctx.textAlign = "right";
