@@ -21,6 +21,8 @@
     "dev:gas-simulation": "esbuild src/gas-simulation-entry.tsx --bundle --sourcemap --outfile=dist/gas-simulation.js --watch",
     "build:galton-board": "tsc --noEmit && esbuild src/galton-board-entry.tsx --bundle --minify --outfile=dist/galton-board.js",
     "dev:galton-board": "esbuild src/galton-board-entry.tsx --bundle --sourcemap --outfile=dist/galton-board.js --watch",
+    "build:number-line-sort": "tsc --noEmit && esbuild src/number-line-sort-entry.tsx --bundle --minify --outfile=dist/number-line-sort.js",
+    "dev:number-line-sort": "esbuild src/number-line-sort-entry.tsx  --bundle --sourcemap --outfile=dist/number-line-sort.js --watch",
     "deploy": "cp dist/* '/Users/ksankar/Local Sites/krishanusankar/app/public/wp-content/themes/assembler/assets/js/'",
     "build:deploy": "npm run build && npm run deploy"
   },

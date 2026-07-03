@@ -40,44 +40,157 @@ export interface NumberLineSet {
   points: DataPoint[];
 }
 
+export interface NumberLineCollection {
+  id: string;
+  sets: NumberLineSet[];
+}
+
 const DEFAULT_DOMAIN: [number, number] = [0, 10];
 
-const DEFAULT_SETS: NumberLineSet[] = [
+// Set identity (name + color) is fixed across collections — only the point
+// values change — so "Set B" always reads as the same series.
+function makeSets(
+  low: DataPoint[],
+  med: DataPoint[],
+  high: DataPoint[],
+): NumberLineSet[] {
+  return [
+    { id: "b", name: "Set B", color: SERIES_COLORS[1], points: high },
+    { id: "a", name: "Set A", color: SERIES_COLORS[0], points: low },
+    { id: "c", name: "Set C", color: SERIES_COLORS[2], points: med },
+  ];
+}
+
+const DEFAULT_COLLECTIONS: NumberLineCollection[] = [
   {
-    id: "b",
-    name: "Set B",
-    color: SERIES_COLORS[1],
-    points: [
-      { label: "A", value: 0.8 },
-      { label: "B", value: 2.5 },
-      { label: "C", value: 5.0 },
-      { label: "D", value: 7.6 },
-      { label: "E", value: 9.3 },
-    ],
+    id: "Q1",
+    sets: makeSets(
+      [
+        { label: "A", value: 4.2 },
+        { label: "B", value: 4.6 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 5.4 },
+        { label: "E", value: 5.8 },
+      ],
+      [
+        { label: "A", value: 2.8 },
+        { label: "B", value: 3.9 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 6.1 },
+        { label: "E", value: 7.3 },
+      ],
+      [
+        { label: "A", value: 0.8 },
+        { label: "B", value: 2.5 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 7.6 },
+        { label: "E", value: 9.3 },
+      ],
+    ),
   },
   {
-    id: "a",
-    name: "Set A",
-    color: SERIES_COLORS[0],
-    points: [
-      { label: "A", value: 4.2 },
-      { label: "B", value: 4.6 },
-      { label: "C", value: 5.0 },
-      { label: "D", value: 5.4 },
-      { label: "E", value: 5.8 },
-    ],
+    id: "Q2",
+    sets: makeSets(
+      [
+        { label: "A", value: 3.5 },
+        { label: "B", value: 3.8 },
+        { label: "C", value: 4.0 },
+        { label: "D", value: 4.2 },
+        { label: "E", value: 4.5 },
+      ],
+      [
+        { label: "A", value: 2.0 },
+        { label: "B", value: 3.2 },
+        { label: "C", value: 4.0 },
+        { label: "D", value: 4.9 },
+        { label: "E", value: 6.0 },
+      ],
+      [
+        { label: "A", value: 0.5 },
+        { label: "B", value: 1.8 },
+        { label: "C", value: 4.0 },
+        { label: "D", value: 6.5 },
+        { label: "E", value: 8.5 },
+      ],
+    ),
   },
   {
-    id: "c",
-    name: "Set C",
-    color: SERIES_COLORS[2],
-    points: [
-      { label: "A", value: 2.8 },
-      { label: "B", value: 3.9 },
-      { label: "C", value: 5.0 },
-      { label: "D", value: 6.1 },
-      { label: "E", value: 7.3 },
-    ],
+    id: "Q3",
+    sets: makeSets(
+      [
+        { label: "A", value: 5.5 },
+        { label: "B", value: 5.8 },
+        { label: "C", value: 6.0 },
+        { label: "D", value: 6.3 },
+        { label: "E", value: 6.6 },
+      ],
+      [
+        { label: "A", value: 4.0 },
+        { label: "B", value: 5.2 },
+        { label: "C", value: 6.0 },
+        { label: "D", value: 7.0 },
+        { label: "E", value: 8.3 },
+      ],
+      [
+        { label: "A", value: 1.0 },
+        { label: "B", value: 3.5 },
+        { label: "C", value: 6.0 },
+        { label: "D", value: 8.0 },
+        { label: "E", value: 9.8 },
+      ],
+    ),
+  },
+  {
+    id: "Q4",
+    sets: makeSets(
+      [
+        { label: "A", value: 4.7 },
+        { label: "B", value: 4.85 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 5.15 },
+        { label: "E", value: 5.3 },
+      ],
+      [
+        { label: "A", value: 3.0 },
+        { label: "B", value: 4.0 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 6.3 },
+        { label: "E", value: 7.5 },
+      ],
+      [
+        { label: "A", value: 0.3 },
+        { label: "B", value: 2.0 },
+        { label: "C", value: 5.0 },
+        { label: "D", value: 8.0 },
+        { label: "E", value: 9.7 },
+      ],
+    ),
+  },
+  {
+    id: "Q5",
+    sets: makeSets(
+      [
+        { label: "A", value: 4.0 },
+        { label: "B", value: 4.3 },
+        { label: "C", value: 4.5 },
+        { label: "D", value: 4.7 },
+        { label: "E", value: 5.0 },
+      ],
+      [
+        { label: "A", value: 2.5 },
+        { label: "B", value: 3.5 },
+        { label: "C", value: 4.5 },
+        { label: "D", value: 5.5 },
+        { label: "E", value: 6.8 },
+      ],
+      [
+        { label: "A", value: 0.5 },
+        { label: "B", value: 1.5 },
+        { label: "C", value: 3.0 },
+        { label: "D", value: 6.0 },
+        { label: "E", value: 9.5 },
+      ],
+    ),
   },
 ];
 
@@ -194,16 +307,20 @@ function NumberLineRow({ set, domain }: { set: NumberLineSet; domain: [number, n
 // ─── Main component ────────────────────────────────────────────────────────
 
 export interface NumberLineSortProps {
-  prompt?: string;
+  promptSuffix?: string;
   domain?: [number, number];
-  sets?: NumberLineSet[];
+  collections?: NumberLineCollection[];
 }
 
 export default function NumberLineSort({
-  prompt = "Order the sets from least to greatest spread.",
+  promptSuffix = "Order the sets from least to greatest spread.",
   domain = DEFAULT_DOMAIN,
-  sets = DEFAULT_SETS,
+  collections = DEFAULT_COLLECTIONS,
 }: NumberLineSortProps) {
+  const [collectionIndex, setCollectionIndex] = useState(0);
+  const collection = collections[collectionIndex]!;
+  const sets = collection.sets;
+
   const [order, setOrder] = useState<string[]>(() => sets.map((s) => s.id));
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
@@ -211,6 +328,20 @@ export default function NumberLineSort({
 
   const dragStartY = useRef(0);
   const dragStartOrder = useRef<string[]>([]);
+
+  useEffect(() => {
+    setOrder(collections[collectionIndex]!.sets.map((s) => s.id));
+    setDraggingId(null);
+    setDragOffset(0);
+    setFeedback(null);
+  }, [collectionIndex, collections]);
+
+  const goToCollection = useCallback(
+    (delta: number) => {
+      setCollectionIndex((i) => (i + delta + collections.length) % collections.length);
+    },
+    [collections.length],
+  );
 
   const setsById = useMemo(() => {
     const m = new Map<string, NumberLineSet>();
@@ -276,119 +407,173 @@ export default function NumberLineSort({
     setFeedback(order.join(",") === correctOrder.join(",") ? "correct" : "incorrect");
   }, [order, correctOrder]);
 
+  const navButtonStyle: React.CSSProperties = {
+    flexShrink: 0,
+    width: "36px",
+    height: "36px",
+    borderRadius: "50%",
+    border: `1px solid ${INK.border}`,
+    background: "#fff",
+    color: INK.primary,
+    fontSize: "18px",
+    lineHeight: 1,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+
   return (
     <div
       style={{
         display: "inline-flex",
         flexDirection: "column",
-        gap: "18px",
+        alignItems: "center",
+        gap: "10px",
         fontFamily: "system-ui, sans-serif",
-        color: INK.primary,
-        padding: "20px",
-        background: INK.surface,
-        border: `1px solid ${INK.border}`,
-        borderRadius: "10px",
-        width: "min(680px, 100%)",
-        boxSizing: "border-box",
       }}
     >
-      <div style={{ fontSize: "16px", fontWeight: 600, color: INK.primary }}>{prompt}</div>
-
-      <div style={{ position: "relative", height: order.length * ROW_HEIGHT - (ROW_HEIGHT - CARD_HEIGHT) }}>
-        {order.map((id, index) => {
-          const set = setsById.get(id);
-          if (!set) return null;
-          const isDragging = draggingId === id;
-          const y = index * ROW_HEIGHT + (isDragging ? dragOffset : 0);
-          return (
-            <div
-              key={id}
-              onPointerDown={(e) => handlePointerDown(e, id)}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                height: CARD_HEIGHT,
-                transform: `translateY(${y}px)`,
-                transition: isDragging ? "none" : "transform 220ms ease",
-                zIndex: isDragging ? 10 : 1,
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "0 16px",
-                background: "#fff",
-                border: `1px solid ${INK.border}`,
-                borderRadius: "8px",
-                boxShadow: isDragging
-                  ? "0 8px 20px rgba(0,0,0,0.15)"
-                  : "0 1px 2px rgba(0,0,0,0.04)",
-                cursor: isDragging ? "grabbing" : "grab",
-                touchAction: "none",
-                userSelect: "none",
-                boxSizing: "border-box",
-              }}
-            >
-              <span style={{ color: INK.muted, fontSize: "14px", letterSpacing: "1px" }}>
-                ⠿
-              </span>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  color: INK.secondary,
-                  flexShrink: 0,
-                  width: "56px",
-                }}
-              >
-                <span
-                  style={{
-                    width: "10px",
-                    height: "10px",
-                    borderRadius: "50%",
-                    background: set.color,
-                    flexShrink: 0,
-                  }}
-                />
-                {set.name}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <NumberLineRow set={set} domain={domain} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: "14px" }}>
         <button
-          onClick={handleCheck}
+          aria-label="Previous collection"
+          onClick={() => goToCollection(-1)}
+          style={navButtonStyle}
+        >
+          ‹
+        </button>
+
+        <div
           style={{
-            padding: "8px 16px",
-            border: `1px solid ${INK.border}`,
-            borderRadius: "6px",
-            background: INK.surface,
-            cursor: "pointer",
-            fontSize: "13px",
-            fontWeight: 600,
+            display: "inline-flex",
+            flexDirection: "column",
+            gap: "18px",
             color: INK.primary,
+            padding: "20px",
+            background: INK.surface,
+            border: `1px solid ${INK.border}`,
+            borderRadius: "10px",
+            width: "min(680px, 100%)",
+            boxSizing: "border-box",
           }}
         >
-          Check order
+          <div style={{ fontSize: "16px", fontWeight: 600, color: INK.primary }}>
+            {collection.id}: {promptSuffix}
+          </div>
+
+          <div
+            style={{
+              position: "relative",
+              height: order.length * ROW_HEIGHT - (ROW_HEIGHT - CARD_HEIGHT),
+            }}
+          >
+            {order.map((id, index) => {
+              const set = setsById.get(id);
+              if (!set) return null;
+              const isDragging = draggingId === id;
+              const y = index * ROW_HEIGHT + (isDragging ? dragOffset : 0);
+              return (
+                <div
+                  key={id}
+                  onPointerDown={(e) => handlePointerDown(e, id)}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: CARD_HEIGHT,
+                    transform: `translateY(${y}px)`,
+                    transition: isDragging ? "none" : "transform 220ms ease",
+                    zIndex: isDragging ? 10 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "0 16px",
+                    background: "#fff",
+                    border: `1px solid ${INK.border}`,
+                    borderRadius: "8px",
+                    boxShadow: isDragging
+                      ? "0 8px 20px rgba(0,0,0,0.15)"
+                      : "0 1px 2px rgba(0,0,0,0.04)",
+                    cursor: isDragging ? "grabbing" : "grab",
+                    touchAction: "none",
+                    userSelect: "none",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <span style={{ color: INK.muted, fontSize: "14px", letterSpacing: "1px" }}>
+                    ⠿
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      fontSize: "13px",
+                      fontWeight: 600,
+                      color: INK.secondary,
+                      flexShrink: 0,
+                      width: "56px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: "10px",
+                        height: "10px",
+                        borderRadius: "50%",
+                        background: set.color,
+                        flexShrink: 0,
+                      }}
+                    />
+                    {set.name}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <NumberLineRow set={set} domain={domain} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <button
+              onClick={handleCheck}
+              style={{
+                padding: "8px 16px",
+                border: `1px solid ${INK.border}`,
+                borderRadius: "6px",
+                background: INK.surface,
+                cursor: "pointer",
+                fontSize: "13px",
+                fontWeight: 600,
+                color: INK.primary,
+              }}
+            >
+              Check order
+            </button>
+            {feedback === "correct" && (
+              <span style={{ color: INK.good, fontSize: "13px", fontWeight: 600 }}>
+                ✓ Correct!
+              </span>
+            )}
+            {feedback === "incorrect" && (
+              <span style={{ color: INK.critical, fontSize: "13px", fontWeight: 600 }}>
+                ✗ Not quite — keep adjusting.
+              </span>
+            )}
+          </div>
+        </div>
+
+        <button
+          aria-label="Next collection"
+          onClick={() => goToCollection(1)}
+          style={navButtonStyle}
+        >
+          ›
         </button>
-        {feedback === "correct" && (
-          <span style={{ color: INK.good, fontSize: "13px", fontWeight: 600 }}>
-            ✓ Correct!
-          </span>
-        )}
-        {feedback === "incorrect" && (
-          <span style={{ color: INK.critical, fontSize: "13px", fontWeight: 600 }}>
-            ✗ Not quite — keep adjusting.
-          </span>
-        )}
+      </div>
+
+      <div style={{ fontSize: "12px", color: INK.muted }}>
+        {collectionIndex + 1} / {collections.length}
       </div>
     </div>
   );
