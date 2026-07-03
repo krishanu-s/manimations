@@ -23,6 +23,8 @@
     "dev:galton-board": "esbuild src/galton-board-entry.tsx --bundle --sourcemap --outfile=dist/galton-board.js --watch",
     "build:number-line-sort": "tsc --noEmit && esbuild src/number-line-sort-entry.tsx --bundle --minify --outfile=dist/number-line-sort.js",
     "dev:number-line-sort": "esbuild src/number-line-sort-entry.tsx  --bundle --sourcemap --outfile=dist/number-line-sort.js --watch",
+    "build:chamber-diffusion": "tsc --noEmit && esbuild src/chamber-diffusion-entry.tsx --bundle --minify --outfile=dist/chamber-diffusion.js",
+    "dev:chamber-diffusion": "esbuild src/chamber-diffusion-entry.tsx --bundle --sourcemap --outfile=dist/chamber-diffusion.js --watch",
     "deploy": "cp dist/* '/Users/ksankar/Local Sites/krishanusankar/app/public/wp-content/themes/assembler/assets/js/'",
     "build:deploy": "npm run build && npm run deploy"
   },
