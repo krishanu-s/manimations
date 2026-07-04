@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { styles, LegendItem, COLORS } from "./viz-utils";
+import { Particle, physicsStepBox } from "./gas_simulations/physics";
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -36,8 +37,6 @@ const COL = {
   dim: "#666",
   bg: "#f8f9fb",
 } as const;
-
-type Particle = { x: number; y: number; vx: number; vy: number };
 
 function radiusFor(n: number) {
   return 40 / Math.sqrt(n);
@@ -76,64 +75,6 @@ function initParticles(n: number, r: number, speed0: number): Particle[] {
     }
   }
   return ps;
-}
-
-// ── Physics ───────────────────────────────────────────────────────────────────
-
-function physicsStep(ps: Particle[], r: number): void {
-  const n = ps.length;
-  const dmin = 2 * r;
-  const dmin2 = dmin * dmin;
-
-  for (let i = 0; i < n; i++) {
-    ps[i]!.x += ps[i]!.vx;
-    ps[i]!.y += ps[i]!.vy;
-  }
-
-  for (let i = 0; i < n; i++) {
-    const p = ps[i]!;
-    if (p.x < r) {
-      p.x = 2 * r - p.x;
-      p.vx = Math.abs(p.vx);
-    }
-    if (p.x > BOX_W - r) {
-      p.x = 2 * (BOX_W - r) - p.x;
-      p.vx = -Math.abs(p.vx);
-    }
-    if (p.y < r) {
-      p.y = 2 * r - p.y;
-      p.vy = Math.abs(p.vy);
-    }
-    if (p.y > BOX_H - r) {
-      p.y = 2 * (BOX_H - r) - p.y;
-      p.vy = -Math.abs(p.vy);
-    }
-  }
-
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const a = ps[i]!,
-        b = ps[j]!;
-      const dx = b.x - a.x,
-        dy = b.y - a.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= dmin2 || d2 < 1e-12) continue;
-      const d = Math.sqrt(d2);
-      const nx = dx / d,
-        ny = dy / d;
-      const dvn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-      if (dvn <= 0) continue;
-      a.vx -= dvn * nx;
-      a.vy -= dvn * ny;
-      b.vx += dvn * nx;
-      b.vy += dvn * ny;
-      const half = 0.5 * (dmin - d);
-      a.x -= half * nx;
-      a.y -= half * ny;
-      b.x += half * nx;
-      b.y += half * ny;
-    }
-  }
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
@@ -343,7 +284,8 @@ export default function GasSimulation() {
   const [playing, setPlaying] = useState(true);
 
   const animate = useCallback(() => {
-    if (playRef.current) physicsStep(psRef.current, rRef.current);
+    if (playRef.current)
+      physicsStepBox(psRef.current, rRef.current, BOX_W, BOX_H);
     const sCtx = simRef.current?.getContext("2d");
     if (sCtx) drawSim(sCtx, psRef.current, rRef.current);
     const hCtx = histRef.current?.getContext("2d");

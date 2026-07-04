@@ -1,12 +1,13 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { styles, LegendItem, COLORS } from "./viz-utils";
+import { Particle, physicsStepChambers } from "./gas_simulations/physics";
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
 const BOX_W = 720;
 const BOX_H = 150;
 
-const APERTURE_FRAC = 0.42; // aperture height as a fraction of BOX_H
+const APERTURE_FRAC = 0.7; // aperture height as a fraction of BOX_H
 
 const DEFAULT_CHAMBERS = 4;
 const CHAMBERS_MIN = 2;
@@ -41,8 +42,6 @@ const COL = {
   bg: "#f8f9fb",
 } as const;
 
-type Particle = { x: number; y: number; vx: number; vy: number };
-
 // ── Geometry helpers ──────────────────────────────────────────────────────────
 
 function chamberWidth(nChambers: number): number {
@@ -66,7 +65,7 @@ function packedRadius(n: number, chamberW: number): number {
   const rows = Math.max(1, Math.ceil(n / cols));
   const cellW = chamberW / cols;
   const cellH = BOX_H / rows;
-  return 0.42 * Math.min(cellW, cellH);
+  return 0.15 * Math.min(cellW, cellH);
 }
 
 // ── Initialization ────────────────────────────────────────────────────────────
@@ -100,84 +99,6 @@ function initParticles(
     }
   }
   return ps;
-}
-
-// ── Physics ───────────────────────────────────────────────────────────────────
-
-function physicsStep(
-  ps: Particle[],
-  r: number,
-  walls: readonly number[],
-  gapY0: number,
-  gapY1: number,
-): void {
-  const n = ps.length;
-  const dmin = 2 * r;
-  const dmin2 = dmin * dmin;
-
-  for (let i = 0; i < n; i++) {
-    ps[i]!.x += ps[i]!.vx;
-    ps[i]!.y += ps[i]!.vy;
-  }
-
-  for (let i = 0; i < n; i++) {
-    const p = ps[i]!;
-    if (p.x < r) {
-      p.x = 2 * r - p.x;
-      p.vx = Math.abs(p.vx);
-    }
-    if (p.x > BOX_W - r) {
-      p.x = 2 * (BOX_W - r) - p.x;
-      p.vx = -Math.abs(p.vx);
-    }
-    if (p.y < r) {
-      p.y = 2 * r - p.y;
-      p.vy = Math.abs(p.vy);
-    }
-    if (p.y > BOX_H - r) {
-      p.y = 2 * (BOX_H - r) - p.y;
-      p.vy = -Math.abs(p.vy);
-    }
-
-    // Interior chamber walls: impermeable except through the aperture gap.
-    for (const wx of walls) {
-      if (p.x <= wx - r || p.x >= wx + r) continue;
-      const clearsGap = p.y - r >= gapY0 && p.y + r <= gapY1;
-      if (clearsGap) continue;
-      if (p.vx >= 0) {
-        p.x = 2 * (wx - r) - p.x;
-        p.vx = -Math.abs(p.vx);
-      } else {
-        p.x = 2 * (wx + r) - p.x;
-        p.vx = Math.abs(p.vx);
-      }
-    }
-  }
-
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const a = ps[i]!,
-        b = ps[j]!;
-      const dx = b.x - a.x,
-        dy = b.y - a.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 >= dmin2 || d2 < 1e-12) continue;
-      const d = Math.sqrt(d2);
-      const nx = dx / d,
-        ny = dy / d;
-      const dvn = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-      if (dvn <= 0) continue;
-      a.vx -= dvn * nx;
-      a.vy -= dvn * ny;
-      b.vx += dvn * nx;
-      b.vy += dvn * ny;
-      const half = 0.5 * (dmin - d);
-      a.x -= half * nx;
-      a.y -= half * ny;
-      b.x += half * nx;
-      b.y += half * ny;
-    }
-  }
 }
 
 // ── Renderers ─────────────────────────────────────────────────────────────────
@@ -232,7 +153,10 @@ function drawChamberHist(
   const chamberW = chamberWidth(nChambers);
   const counts = new Array<number>(nChambers).fill(0);
   for (const p of ps) {
-    const idx = Math.min(nChambers - 1, Math.max(0, Math.floor(p.x / chamberW)));
+    const idx = Math.min(
+      nChambers - 1,
+      Math.max(0, Math.floor(p.x / chamberW)),
+    );
     counts[idx]!++;
   }
   const total = Math.max(ps.length, 1);
@@ -349,9 +273,11 @@ export default function ChamberDiffusion() {
 
   const animate = useCallback(() => {
     if (playRef.current) {
-      physicsStep(
+      physicsStepChambers(
         psRef.current,
         rRef.current,
+        BOX_W,
+        BOX_H,
         wallsRef.current,
         gapRef.current[0],
         gapRef.current[1],
