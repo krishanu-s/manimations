@@ -8,6 +8,7 @@ const BOX_W = 400;
 const BOX_H = 400;
 
 const DEFAULT_T = 1;
+const DEFAULT_G = 0.0;
 const T_MIN = 0.25;
 const T_MAX = 4;
 const T_STEP = 0.05;
@@ -274,6 +275,7 @@ export default function GasSimulation() {
   const nRef = useRef(DEFAULT_N);
   const rRef = useRef(radiusFor(DEFAULT_N));
   const tRef = useRef(DEFAULT_T);
+  const gRef = useRef(DEFAULT_G);
   const speed0Ref = useRef(Math.sqrt(DEFAULT_T));
   const psRef = useRef<Particle[]>(
     initParticles(nRef.current, rRef.current, speed0Ref.current),
@@ -281,11 +283,18 @@ export default function GasSimulation() {
 
   const [nState, setNState] = useState(DEFAULT_N);
   const [tState, setTState] = useState(DEFAULT_T);
+  const [gState, setGState] = useState(DEFAULT_G);
   const [playing, setPlaying] = useState(true);
 
   const animate = useCallback(() => {
     if (playRef.current)
-      physicsStepBox(psRef.current, rRef.current, BOX_W, BOX_H);
+      physicsStepBox({
+        ps: psRef.current,
+        r: rRef.current,
+        g: gRef.current,
+        boxW: BOX_W,
+        boxH: BOX_H,
+      });
     const sCtx = simRef.current?.getContext("2d");
     if (sCtx) drawSim(sCtx, psRef.current, rRef.current);
     const hCtx = histRef.current?.getContext("2d");
@@ -318,6 +327,12 @@ export default function GasSimulation() {
     speed0Ref.current = Math.sqrt(tNew);
     tRef.current = tNew;
     setTState(tNew);
+  }
+
+  function handleGChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const gNew = parseFloat(e.target.value);
+    gRef.current = gNew;
+    setGState(gNew);
   }
 
   function togglePlay() {

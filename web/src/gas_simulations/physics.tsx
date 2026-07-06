@@ -1,25 +1,34 @@
 // Physics simulation utils
 
+// State of a single particle
 export type Particle = { x: number; y: number; vx: number; vy: number };
+
+// Global settings for simulation
+export interface SimSettings {
+  ps: Particle[]; // Gas particles
+  r: number; // Particle radius
+  g: number; // Gravitational constant
+  boxW: number; // Chamber width
+  boxH: number; // Chamber height
+}
 
 // Physics for particles in a rectangular box
 // TODO Add gravity option.
 // TODO Refactor the next function below with this
-export function physicsStepBox(
-  ps: Particle[],
-  r: number,
-  boxW: number,
-  boxH: number,
-): void {
+export function physicsStepBox({ ps, r, g, boxW, boxH }: SimSettings): void {
   const n = ps.length;
   const dmin = 2 * r;
   const dmin2 = dmin * dmin;
 
+  // Move position and enact gravity, in a way that preserves PE + KE.
   for (let i = 0; i < n; i++) {
+    ps[i]!.vy += g / 2;
     ps[i]!.x += ps[i]!.vx;
     ps[i]!.y += ps[i]!.vy;
+    ps[i]!.vy += g / 2;
   }
 
+  // Particle-box collisions
   for (let i = 0; i < n; i++) {
     const p = ps[i]!;
     if (p.x < r) {
@@ -40,6 +49,7 @@ export function physicsStepBox(
     }
   }
 
+  // Particle-particle collisions
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
       const a = ps[i]!,
