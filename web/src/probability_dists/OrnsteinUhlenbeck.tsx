@@ -25,7 +25,7 @@ import {
   LegendItem,
   styles,
   PAD,
-} from "./viz-utils";
+} from "../viz-utils";
 
 // ─── Grid ─────────────────────────────────────────────────────────────────────
 const XMIN = -6.0;

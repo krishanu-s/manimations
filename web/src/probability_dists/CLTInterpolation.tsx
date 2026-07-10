@@ -20,7 +20,7 @@ import {
   plotDistribution,
   plotDashedCurve,
   LegendItem,
-} from "./viz-utils";
+} from "../viz-utils";
 import {
   evalCharFn,
   convolveGaussians,

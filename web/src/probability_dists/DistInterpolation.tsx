@@ -16,7 +16,7 @@ import {
   drawAxes,
   plotDistribution,
   LegendItem,
-} from "./viz-utils";
+} from "../viz-utils";
 import {
   evalCharFn,
   fft,

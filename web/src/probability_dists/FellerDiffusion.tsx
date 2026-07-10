@@ -21,7 +21,7 @@ import {
   plotDashedCurve,
   LegendItem,
   styles,
-} from "./viz-utils";
+} from "../viz-utils";
 
 // ─── Simulation parameters ───────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ function renderFrame(
   const tr = makeTransforms(0, XMAX, YMAX, W, H);
 
   drawAxes(ctx, 0, XMAX, YMAX, 1, 2, tr);
-  plotDashedCurve(ctx, XSPACE, (x) => Math.exp(-x / mean) / mean, tr);
+  plotDashedCurve(ctx, XSPACE, (x: number) => Math.exp(-x / mean) / mean, tr);
   plotDistribution(ctx, XSPACE, vals, tr);
 }
 

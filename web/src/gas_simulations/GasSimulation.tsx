@@ -1,43 +1,56 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { styles, LegendItem, COLORS } from "./viz-utils";
-import { Particle, physicsStepBox } from "./gas_simulations/physics";
+import { styles, LegendItem, COLORS } from "../viz-utils";
+import { SimSettings, Particle, physicsStepBox } from "./physics";
+import { COL, randomDiagonalVector, randomRadialVector } from "./utils";
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
+// Total region allotted for physics simulation
 const BOX_W = 400;
-const BOX_H = 400;
+const BOX_H = 500;
 
+// Note that temperature T means initial speed is √(T).
 const DEFAULT_T = 1;
-const DEFAULT_G = 0.0;
-const T_MIN = 0.25;
+const T_MIN = 0.05;
 const T_MAX = 4;
 const T_STEP = 0.05;
 
+// Timestep Δt is normalized to 1. Since
+// - the velocity value here represents vΔt and
+// - the gravity value here represents g(Δt)^2
+// it follows that gravity values should be small.
+const DEFAULT_G = 0.0;
+const G_MIN = 0.0;
+const G_MAX = 0.03;
+const G_STEP = 0.001;
+
+// Total region allotted for histograms.
 const HC_W = 280;
-const HC_H = 400;
-const HIST_H = 125;
-const H_YOFFS = [5, 140, 275] as const;
+const HC_H = 500;
+
+// Individual histograms
+const HIST_H = 115;
+const N_HIST = 4;
+const HIST_OFFSET = 125;
+const H_YOFFS = [
+  5,
+  5 + HIST_OFFSET,
+  5 + 2 * HIST_OFFSET,
+  5 + 3 * HIST_OFFSET,
+] as const;
 const HP = { t: 20, r: 14, b: 32, l: 30 } as const;
 const N_BINS = 60;
 
+// Number of chambers
+const DEFAULT_LEVELS = 4;
+const LEVELS_MIN = 2;
+const LEVELS_MAX = 16;
+
+// Number of particles
 const DEFAULT_N = 400;
 const N_MIN = 60;
 const N_MAX = 1000;
 const N_STEP = 10;
-
-// ── Colors ────────────────────────────────────────────────────────────────────
-
-const COL = {
-  particle: "rgba(30, 100, 220, 0.78)",
-  particleEdge: "rgba(15, 60, 160, 0.90)",
-  barFill: "rgba(40, 110, 230, 0.35)",
-  barEdge: "rgba(30, 90, 210, 0.82)",
-  theory: "rgba(210, 40, 60, 0.90)",
-  axis: "#555",
-  text: "#333",
-  dim: "#666",
-  bg: "#f8f9fb",
-} as const;
 
 function radiusFor(n: number) {
   return 40 / Math.sqrt(n);
@@ -45,18 +58,7 @@ function radiusFor(n: number) {
 
 // ── Initialization ────────────────────────────────────────────────────────────
 
-// Produces a vector of the given length whose angle is chosen uniformly in [0, 2π]
-function randomRadialVector(r: number): [number, number] {
-  const θ = Math.random() * 2 * Math.PI;
-  return [r * Math.cos(θ), r * Math.sin(θ)];
-}
-
-// Produces a vector of the given length whose angle is chosen uniformly in [π/4, 3π/4, 5π/4, 7π/4]
-function randomDiagonalVector(r: number): [number, number] {
-  const θ = ((Math.floor(4 * Math.random()) + 0.5) * Math.PI) / 2;
-  return [r * Math.cos(θ), r * Math.sin(θ)];
-}
-
+// Initialize particles uniformly in the box
 function initParticles(n: number, r: number, speed0: number): Particle[] {
   const cols = Math.ceil(Math.sqrt(n));
   const rows = Math.ceil(n / cols);
@@ -82,11 +84,33 @@ function initParticles(n: number, r: number, speed0: number): Particle[] {
 
 function drawSim(
   ctx: CanvasRenderingContext2D,
-  ps: Particle[],
-  r: number,
+  { ps, r, g, boxW, boxH }: SimSettings,
+  nLevels: number,
 ): void {
+  // Rectangular box
   ctx.fillStyle = COL.bg;
-  ctx.fillRect(0, 0, BOX_W, BOX_H);
+  ctx.fillRect(0, 0, boxW, boxH);
+
+  // Virtual dividers between regions and region labels
+  ctx.strokeStyle = COL.vdiv;
+  ctx.lineWidth = 1;
+  for (let i = 1; i < nLevels; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (i / nLevels) * boxH);
+    ctx.lineTo(boxW, (i / nLevels) * boxH);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = COL.text;
+  ctx.strokeStyle = COL.dim;
+  ctx.font = "14px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  for (let i = 1; i < nLevels + 1; i++) {
+    ctx.fillText(i.toString(), BOX_W / 2, (BOX_H * (i - 0.5)) / nLevels - 8);
+  }
+
+  // Individual particles
   for (const p of ps) {
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, 2 * Math.PI);
@@ -107,20 +131,21 @@ function drawOneHist(
   title: string,
   xlabel: string,
   theoryFn: (x: number) => number,
+  nBins: number,
 ): void {
   const { t, r, b, l } = HP;
   const pw = HC_W - l - r;
   const ph = HIST_H - t - b;
   const range = xMax - xMin;
-  const bw = range / N_BINS;
+  const bw = range / nBins;
 
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, yOff, HC_W, HIST_H);
 
-  const counts = new Array<number>(N_BINS).fill(0);
+  const counts = new Array<number>(nBins).fill(0);
   for (const v of values) {
-    const idx = Math.floor(((v - xMin) / range) * N_BINS);
-    if (idx >= 0 && idx < N_BINS) counts[idx]!++;
+    const idx = Math.floor(((v - xMin) / range) * nBins);
+    if (idx >= 0 && idx < nBins) counts[idx]!++;
   }
   const n = Math.max(values.length, 1);
   const dens = counts.map((c) => c / (n * bw));
@@ -136,8 +161,9 @@ function drawOneHist(
   const cy = (v: number) => yOff + t + (1 - Math.min(v / yMax, 1)) * ph;
   const y0 = yOff + t + ph;
 
-  const bpx = pw / N_BINS;
-  for (let i = 0; i < N_BINS; i++) {
+  // Bars
+  const bpx = pw / nBins;
+  for (let i = 0; i < nBins; i++) {
     const bx = cx(xMin + i * bw);
     const bh = (dens[i]! / yMax) * ph;
     ctx.fillStyle = COL.barFill;
@@ -147,6 +173,7 @@ function drawOneHist(
     ctx.strokeRect(bx, y0 - bh, bpx - 0.5, bh);
   }
 
+  // Theory curve
   ctx.beginPath();
   ctx.strokeStyle = COL.theory;
   ctx.lineWidth = 1.8;
@@ -157,6 +184,7 @@ function drawOneHist(
   }
   ctx.stroke();
 
+  // Axis
   ctx.strokeStyle = COL.axis;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -165,6 +193,7 @@ function drawOneHist(
   ctx.lineTo(l + pw, y0);
   ctx.stroke();
 
+  // Text
   ctx.fillStyle = COL.text;
   ctx.font = "bold 11px system-ui, sans-serif";
   ctx.textAlign = "left";
@@ -216,13 +245,20 @@ function drawOneHist(
   ctx.fillText("p", l, yOff + t - 2);
 }
 
-function drawHistograms(ctx: CanvasRenderingContext2D, ps: Particle[]): void {
+// Draw the histograms. TODO Toggles
+function drawHistograms(
+  ctx: CanvasRenderingContext2D,
+  ps: Particle[],
+  g: number,
+  nLevels: number,
+): void {
   ctx.fillStyle = COL.bg;
   ctx.fillRect(0, 0, HC_W, HC_H);
 
   const vxArr = ps.map((p) => p.vx);
   const vyArr = ps.map((p) => p.vy);
   const keArr = ps.map((p) => 0.5 * (p.vx * p.vx + p.vy * p.vy));
+  const levelsArr = ps.map((p) => nLevels * (1 - p.y / BOX_H));
 
   const kT = keArr.reduce((s, k) => s + k, 0) / ps.length;
   const sigma = Math.sqrt(Math.max(kT, 1e-9));
@@ -235,30 +271,71 @@ function drawHistograms(ctx: CanvasRenderingContext2D, ps: Particle[]): void {
   // const keMax = Math.max(5 * kT, 0.1);
   const keMax = 5.0;
 
+  // Theoretical distribution for velocity
   const gaussFn = (v: number) =>
     (1 / (Math.sqrt(2 * Math.PI) * sigma)) * Math.exp((-v * v) / (2 * kT));
-  const expFn = (ke: number) => (ke >= 0 ? (1 / kT) * Math.exp(-ke / kT) : 0);
 
-  drawOneHist(ctx, H_YOFFS[0], keArr, 0, keMax, "kinetic energy", "KE", expFn);
+  // Theoretical distribution for kinetic energy
+  const expFnKE = (ke: number) => (ke >= 0 ? (1 / kT) * Math.exp(-ke / kT) : 0);
+
+  // Theoretical distribution for y-position
+  // TODO Have to figure out the constants here. Should be a function that the integral from 0 to nLevels is equal to 1,
+  // and such that it is exponentially decreasing
+  const mean = (BOX_H / nLevels) * g;
+  const C = mean / (1 - Math.exp(-nLevels));
+  const expFnPE = (pe: number) =>
+    pe >= 0 ? (g > 0 ? C * Math.exp(-pe * mean) : 1 / nLevels) : 0;
+
+  // Position y-component
+  drawOneHist(
+    ctx,
+    H_YOFFS[0],
+    levelsArr,
+    0,
+    nLevels,
+    "y position",
+    "y",
+    expFnPE,
+    nLevels,
+  );
+
+  // Kinetic energy
   drawOneHist(
     ctx,
     H_YOFFS[1],
+    keArr,
+    0,
+    keMax,
+    "kinetic energy",
+    "KE",
+    expFnKE,
+    N_BINS,
+  );
+
+  // Velocity x-component
+  drawOneHist(
+    ctx,
+    H_YOFFS[2],
     vxArr,
     -vRange,
     vRange,
     "vx velocities",
     "vx",
     gaussFn,
+    N_BINS,
   );
+
+  // Velocity y-component
   drawOneHist(
     ctx,
-    H_YOFFS[2],
+    H_YOFFS[3],
     vyArr,
     -vRange,
     vRange,
     "vy velocities",
     "vy",
     gaussFn,
+    N_BINS,
   );
 }
 
@@ -280,11 +357,13 @@ export default function GasSimulation() {
   const psRef = useRef<Particle[]>(
     initParticles(nRef.current, rRef.current, speed0Ref.current),
   );
+  const nLevelsRef = useRef(DEFAULT_LEVELS);
 
   const [nState, setNState] = useState(DEFAULT_N);
   const [tState, setTState] = useState(DEFAULT_T);
   const [gState, setGState] = useState(DEFAULT_G);
   const [playing, setPlaying] = useState(true);
+  const [nLevelsState, setNLevelsState] = useState(DEFAULT_LEVELS);
 
   const animate = useCallback(() => {
     if (playRef.current)
@@ -296,9 +375,21 @@ export default function GasSimulation() {
         boxH: BOX_H,
       });
     const sCtx = simRef.current?.getContext("2d");
-    if (sCtx) drawSim(sCtx, psRef.current, rRef.current);
+    if (sCtx)
+      drawSim(
+        sCtx,
+        {
+          ps: psRef.current,
+          r: rRef.current,
+          g: 0,
+          boxW: BOX_W,
+          boxH: BOX_H,
+        },
+        nLevelsRef.current,
+      );
     const hCtx = histRef.current?.getContext("2d");
-    if (hCtx) drawHistograms(hCtx, psRef.current);
+    if (hCtx)
+      drawHistograms(hCtx, psRef.current, gRef.current, nLevelsRef.current);
     rafRef.current = requestAnimationFrame(animate);
   }, []);
 
@@ -329,6 +420,12 @@ export default function GasSimulation() {
     setTState(tNew);
   }
 
+  function handleLevelsChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const nLevelsNew = parseInt(e.target.value);
+    nLevelsRef.current = nLevelsNew;
+    setNLevelsState(nLevelsNew);
+  }
+
   function handleGChange(e: React.ChangeEvent<HTMLInputElement>) {
     const gNew = parseFloat(e.target.value);
     gRef.current = gNew;
@@ -351,12 +448,14 @@ export default function GasSimulation() {
   return (
     <div style={styles.wrapper}>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        {/*Display simulation*/}
         <canvas
           ref={simRef}
           width={BOX_W}
           height={BOX_H}
           style={{ ...styles.canvas, display: "block" }}
         />
+        {/*Display histograms*/}
         <canvas
           ref={histRef}
           width={HC_W}
@@ -365,7 +464,9 @@ export default function GasSimulation() {
         />
       </div>
 
+      {/*Sliders*/}
       <div style={{ ...styles.controls, justifyContent: "center" }}>
+        {/*Number of particles*/}
         <label style={styles.sliderLabel}>
           <span>
             N = <strong>{nState}</strong>
@@ -380,6 +481,24 @@ export default function GasSimulation() {
             style={styles.slider}
           />
         </label>
+
+        {/*Number of Levels*/}
+        <label style={styles.sliderLabel}>
+          <span>
+            levels = <strong>{nLevelsState}</strong>
+          </span>
+          <input
+            type="range"
+            min={LEVELS_MIN}
+            max={LEVELS_MAX}
+            step={1}
+            value={nLevelsState}
+            onChange={handleLevelsChange}
+            style={styles.slider}
+          />
+        </label>
+
+        {/*Temperature*/}
         <label style={styles.sliderLabel}>
           <span>
             T = <strong>{tState.toFixed(2)}</strong>
@@ -394,6 +513,24 @@ export default function GasSimulation() {
             style={styles.slider}
           />
         </label>
+
+        {/*Gravity*/}
+        <label style={styles.sliderLabel}>
+          <span>
+            g = <strong>{(100 * gState).toFixed(2)}</strong>
+          </span>
+          <input
+            type="range"
+            min={G_MIN}
+            max={G_MAX}
+            step={G_STEP}
+            value={gState}
+            onChange={handleGChange}
+            style={styles.slider}
+          />
+        </label>
+
+        {/*Buttons*/}
         <button onClick={togglePlay} style={styles.btn}>
           {playing ? "Pause" : "Play"}
         </button>

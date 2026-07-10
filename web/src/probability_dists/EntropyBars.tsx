@@ -11,7 +11,7 @@
  */
 
 import { useRef, useEffect, useState } from "react";
-import { PAD, COLORS, styles } from "./viz-utils";
+import { PAD, COLORS, styles } from "../viz-utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
