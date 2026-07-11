@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "npm run build:riemann && npm run build:feller && npm run build:ou && npm run build:entropy && npm run build:clt && npm run build:dist-interpolation && npm run build:gas-simulation && npm run build:chamber-diffusion && npm run build:vertical-chamber-diffusion",
+    "build": "npm run build:riemann && npm run build:feller && npm run build:ou && npm run build:entropy && npm run build:clt && npm run build:dist-interpolation && npm run build:gas-simulation && npm run build:chamber-diffusion",
     "build:riemann": "tsc --noEmit && esbuild src/riemann.ts --bundle --minify --outfile=dist/riemann.js",
     "build:feller": "tsc --noEmit && esbuild src/probability_dists/feller-entry.tsx --bundle --minify --outfile=dist/feller.js",
     "build:ou": "tsc --noEmit && esbuild src/probability_dists/ou-entry.tsx --bundle --minify --outfile=dist/ou.js",
@@ -15,7 +15,6 @@
     "build:number-line-sort": "tsc --noEmit && esbuild src/number-line-sort-entry.tsx --bundle --minify --outfile=dist/number-line-sort.js",
     "build:gas-simulation": "tsc --noEmit && esbuild src/gas_simulations/gas-simulation-entry.tsx --bundle --minify --outfile=dist/gas-simulation.js",
     "build:chamber-diffusion": "tsc --noEmit && esbuild src/gas_simulations/chamber-diffusion-entry.tsx --bundle --minify --outfile=dist/chamber-diffusion.js",
-    "build:vertical-chamber-diffusion": "tsc --noEmit && esbuild src/gas_simulations/vertical-chamber-diffusion-entry.tsx --bundle --minify --outfile=dist/vertical-chamber-diffusion.js",
     "dev:riemann": "esbuild src/riemann.ts --bundle --sourcemap --outfile=dist/riemann.js --watch",
     "dev:feller": "esbuild src/feller-entry.tsx --bundle --sourcemap --outfile=dist/feller.js --watch",
     "dev:ou": "esbuild src/ou-entry.tsx --bundle --sourcemap --outfile=dist/ou.js --watch",
