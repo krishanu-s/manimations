@@ -22,6 +22,15 @@ const N_MIN = 80;
 const N_MAX = 700;
 const N_STEP = 10;
 
+// Timestep Δt is normalized to 1. Since
+// - the velocity value here represents vΔt and
+// - the gravity value here represents g(Δt)^2
+// it follows that gravity values should be small.
+const DEFAULT_G = 0.0;
+const G_MIN = 0.0;
+const G_MAX = 0.05;
+const G_STEP = 0.001;
+
 const DEFAULT_SPEED = 1.4;
 const SPEED_MIN = 0.4;
 const SPEED_MAX = 3.0;
@@ -236,7 +245,9 @@ export default function ChamberDiffusion() {
   // sees current values without needing to restart the rAF loop on slider changes.
   const nChambersRef = useRef(DEFAULT_CHAMBERS);
   const nParticlesRef = useRef(DEFAULT_N);
+  const [gState, setGState] = useState(DEFAULT_G);
   const speedRef = useRef(DEFAULT_SPEED);
+  const gRef = useRef(DEFAULT_G);
   const rRef = useRef(packedRadius(DEFAULT_N, chamberWidth(DEFAULT_CHAMBERS)));
   const wallsRef = useRef<number[]>(wallXs(DEFAULT_CHAMBERS));
   const [gapY0Init, gapY1Init] = apertureRange();
@@ -258,10 +269,13 @@ export default function ChamberDiffusion() {
   const animate = useCallback(() => {
     if (playRef.current) {
       physicsStepChambers(
-        psRef.current,
-        rRef.current,
-        BOX_W,
-        BOX_H,
+        {
+          ps: psRef.current,
+          r: rRef.current,
+          g: gRef.current,
+          boxW: BOX_W,
+          boxH: BOX_H,
+        },
         wallsRef.current,
         gapRef.current[0],
         gapRef.current[1],
@@ -319,6 +333,12 @@ export default function ChamberDiffusion() {
     setSpeedState(speedNew);
   }
 
+  function handleGChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const gNew = parseFloat(e.target.value);
+    gRef.current = gNew;
+    setGState(gNew);
+  }
+
   function togglePlay() {
     playRef.current = !playRef.current;
     setPlaying(playRef.current);
@@ -344,6 +364,7 @@ export default function ChamberDiffusion() {
       />
 
       <div style={{ ...styles.controls, justifyContent: "center" }}>
+        {/*Number of chambers*/}
         <label style={styles.sliderLabel}>
           <span>
             chambers = <strong>{nChambersState}</strong>
@@ -358,6 +379,7 @@ export default function ChamberDiffusion() {
             style={styles.slider}
           />
         </label>
+        {/*Number of particles*/}
         <label style={styles.sliderLabel}>
           <span>
             N = <strong>{nParticlesState}</strong>
@@ -372,6 +394,8 @@ export default function ChamberDiffusion() {
             style={styles.slider}
           />
         </label>
+
+        {/*Temperature*/}
         <label style={styles.sliderLabel}>
           <span>
             speed = <strong>{speedState.toFixed(1)}</strong>
@@ -386,6 +410,24 @@ export default function ChamberDiffusion() {
             style={styles.slider}
           />
         </label>
+
+        {/*Gravity*/}
+        <label style={styles.sliderLabel}>
+          <span>
+            g = <strong>{(100 * gState).toFixed(2)}</strong>
+          </span>
+          <input
+            type="range"
+            min={G_MIN}
+            max={G_MAX}
+            step={G_STEP}
+            value={gState}
+            onChange={handleGChange}
+            style={styles.slider}
+          />
+        </label>
+
+        {/*Buttons*/}
         <button onClick={togglePlay} style={styles.btn}>
           {playing ? "Pause" : "Play"}
         </button>

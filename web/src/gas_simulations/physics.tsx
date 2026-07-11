@@ -77,10 +77,7 @@ export function physicsStepBox({ ps, r, g, boxW, boxH }: SimSettings): void {
 
 // Physics for a box with chambers arranged horizontally.
 export function physicsStepChambers(
-  ps: Particle[],
-  r: number,
-  boxW: number,
-  boxH: number,
+  { ps, r, g, boxW, boxH }: SimSettings,
   walls: readonly number[],
   gapY0: number,
   gapY1: number,
@@ -90,8 +87,10 @@ export function physicsStepChambers(
   const dmin2 = dmin * dmin;
 
   for (let i = 0; i < n; i++) {
+    ps[i]!.vx -= g / 2;
     ps[i]!.x += ps[i]!.vx;
     ps[i]!.y += ps[i]!.vy;
+    ps[i]!.vx -= g / 2;
   }
 
   for (let i = 0; i < n; i++) {
