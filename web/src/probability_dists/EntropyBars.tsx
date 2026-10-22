@@ -15,8 +15,8 @@ import { PAD, COLORS, styles } from "../viz-utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CANVAS_W = 660;
-const CANVAS_H = 400;
+const CANVAS_W = 450;
+const CANVAS_H = 300;
 const YMAX = 5; // fixed y-axis ceiling; bars reaching it are clipped
 const MIN_WIDTH = 0.02; // minimum interval width (so max bar ≈ -ln(0.02) ≈ 3.91 < YMAX)
 const HIT_PX = 10; // pixel radius for divider hit-testing
